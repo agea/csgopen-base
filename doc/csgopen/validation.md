@@ -738,3 +738,88 @@ accepts CRLF, unlike the Ubuntu runner in the supplied log.
 `actionlint` and `git diff --check` also pass. No native rebuild was needed for
 this Python-only correction. Full GitHub release publication remains pending
 the next run with the corrected manifest generator.
+
+### Compiled Quake 3 BSP conversion front end — 1 October 2026
+
+The new Python front end was exercised against all six supplied Urban Terror
+PK3 files: `ut4_thewall`, `ut4_quickfight`, `ut4_iran3`, `ut4_fastfight`,
+`ut4_boxtrot_v1`, and `ut4_baeza`. It parsed their compiled IBSP 46 data
+without relying on source brush files and found render geometry, solid
+collision brushes, and player starts in every archive. Quickfight produced
+7,916 source render vertices, 4,953 OBJ triangles, 389 solid brushes, and 32
+recognized player starts.
+
+The five synthetic regression tests pass. They cover compiled geometry and
+collision data, red-team spawn translation, a PK3 containing only a compiled
+BSP, rejection of an unsupported BSP version, and literal backslashes in
+entity values. They also check two-sided collision generation and floor-backed
+spawn placement. Python bytecode compilation and `git diff --check` also pass.
+
+The collidable-mapmodel backend was then exercised end to end with Quickfight.
+It extracted the two directly referenced image textures, generated the OBJ and
+model configuration, transformed all 32 player starts, and saved a native MPZ
+from an isolated editor profile. A TDM client loaded that MPZ and its staged
+content package, joined Omega at an imported spawn with 100 health, rendered
+the converted geometry and texture, saved a 1280x720 screenshot, emitted
+`Q3PLAY_DONE ut4_quickfight`, and exited normally. One bot later fell to its
+death in this initial implementation.
+
+The collision backend was subsequently separated from the render model and
+made two-sided. Spawn placement now ray-tests walkable compiled surfaces and
+adds explicit player clearance. Quickfight generated 9,902 collision triangles
+(both windings of 4,951 solid source triangles); all 32 starts found a supporting
+floor with no fallback. A regenerated MPZ then completed a 35-second TDM run:
+the human and bot moved and exchanged kills, the log contained no fall deaths,
+and the client emitted `Q3PLAY_DONE ut4_quickfight` before exiting normally.
+This removes the reproduced spawn/collision failure, though it is not a proof
+of full traversal coverage for every map. A static support pass over all six
+supplied archives found floors for every recognized start: The Wall 24/24,
+Quickfight 32/32, Iran 3 41/41, Fastfight 55/55, Boxtrot 17/17, and Baeza
+23/23. Missing optional `.txt` and `.wpt` files were logged but do not prevent
+loading or play.
+
+The `convert-pk3.sh` wrapper was also run from the original PK3 through MPZ
+generation and package assembly. It found the completion marker and produced a
+self-contained staged package under `.csgopen/map-convert/`. Conversion to
+editable Cube 2 octree geometry, shader-script translation, indirect shader
+texture discovery and systematic collision traversal remain future work.
+
+### macOS desktop fullscreen resize loop — 1 October 2026
+
+The downloaded ARM64 release (build 3, commit
+`296c16541d510c09750b9f106ab6a6908077d32b`) logged `Fatal signal 11` immediately
+after loading Echo. The user observed repeated transitions between fullscreen
+and windowed mode. A separate LLDB run reproduced those transitions, with
+repeated display reports of 1728 × 1117 versus a 1728 × 1084 fullscreen client
+area, but exited normally without reproducing the segmentation fault. The
+engine's signal handler had prevented an ordinary macOS crash report from
+being available for the original failure; no faulting stack was captured.
+
+`setupdisplay` previously forced every fullscreen client area to match the
+display mode, triggering another exit/re-entry whenever resize events reported
+the smaller client area. It now enforces that match only for exclusive
+fullscreen, accepting window-manager dimensions for desktop fullscreen. The
+SDL desktop flag includes the fullscreen bit, so the masked flags must be
+compared explicitly; checking either bit alone would retain the loop.
+
+Executed on the development Mac:
+
+- Native client build passed; log `.csgopen/logs/fullscreen-fix-build.log`.
+- A diagnostic copy of the corrected client was linked to all runtime libraries
+  from the downloaded release via a local symlink. The downloaded app and the
+  user's profile were preserved. Using the downloaded assets, it loaded Echo,
+  switched fullscreen → windowed → fullscreen and reached
+  `BUNDLED_FULLSCREEN_CHECK_DONE`, exiting with status 0. The repeated reset
+  loop disappeared; log `.csgopen/logs/release-crash-bundled-fixed-game.log`.
+- The corrected client with the downloaded libraries completed the explicit
+  network smoke test in fullscreen: **`SMOKE_DONE FAILURES 0`**, including
+  respawn and map change. Log `.csgopen/logs/fullscreen-smoke-client.log`.
+  Test profiles were isolated in `.csgopen/`; the test server used loopback port
+  28941 with public registration, LAN discovery and HTTP disabled.
+- `git diff --check` passed. Gameplay rules and assets are unchanged.
+
+This establishes the resize-loop fix; it does not prove the original signal
+11 arose from that loop. A fresh packaged GitHub release, other platforms,
+exclusive fullscreen and longer manual play remain untested for this change.
+The existing downloaded release can temporarily be launched with `-df0` to
+use a window until a release containing the engine fix is available.

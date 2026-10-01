@@ -64,6 +64,47 @@ place the binaries. Use the development script for this milestone.
 
 ## Local gameplay
 
+### Quake 3 / Urban Terror map converter
+
+`scripts/csgopen/q3bsp.py` reads compiled Quake 3 `IBSP` version 46 data
+directly from a `.bsp` or `.pk3`. It does not require an optional `.map` or
+`.bak` brush source. With no output directory it prints a JSON summary:
+
+```sh
+python3 scripts/csgopen/q3bsp.py /path/to/ut4_example.pk3
+```
+
+With an output directory it writes an OBJ render mesh and a JSON conversion
+manifest. The manifest contains the source bounds, solid collision-brush
+planes and translated spawn intent (`red` to Alpha, `blue` to Omega, generic
+starts to neutral). Polygon and mesh faces are exported, and quadratic patch
+faces are tessellated.
+
+```sh
+python3 scripts/csgopen/q3bsp.py /path/to/ut4_example.pk3 .csgopen/map-convert/example
+```
+
+The end-to-end wrapper creates a temporary staged content package, extracts
+directly referenced textures, and builds separate render and collision models.
+The collision model duplicates each compiled surface with both windings, so it
+does not depend on source brushes or on the source renderer's front-face
+convention. The converter ray-tests each spawn against walkable BSP surfaces,
+snaps it above the closest supporting floor with player clearance, records any
+unsupported starts in the manifest, creates native Alpha/Omega/neutral player
+starts, and uses the client editor to save an `.mpz`:
+
+```sh
+scripts/csgopen/convert-pk3.sh /path/to/ut4_example.pk3
+```
+
+The wrapper prints the package directory and an exact client command for
+playing the converted map. A second BSP-name argument selects a map when an
+archive name does not match its BSP name or the PK3 contains multiple maps.
+Derived files stay under `.csgopen/map-convert/` and are not added to the
+repository. This first backend keeps the map as a collidable model; conversion
+to editable Cube 2 octree geometry remains future work. Permission to make and
+distribute a converted map must still be checked per archive.
+
 The TDM launcher loads `config/csgopen/branding.cfg` before creating the window.
 It uses `data/csgopen/branding/splash.png` (3344 × 1882) as the loading background
 and `data/csgopen/branding/icon.png` (1254 × 1254, RGBA) as the SDL application
