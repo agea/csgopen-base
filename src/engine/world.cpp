@@ -9,6 +9,7 @@ VARN(0, emptymap, _emptymap, 1, 0, 0);
 
 VAR(0, octaentsize, 0, 64, 1024);
 VAR(0, entselradius, 0, 2, 10);
+VAR(0, newmapfloor, 0, 1, 1);
 
 static inline void transformbb(const entity &e, vec &center, vec &radius)
 {
@@ -1501,7 +1502,7 @@ bool emptymap(int scale, bool force, const char *mname, bool usecfg)    // main 
     texmru.shrink(0);
     freeocta(worldroot);
     worldroot = newcubes(F_EMPTY);
-    loopi(4) solidfaces(worldroot[i]);
+    if(newmapfloor) loopi(4) solidfaces(worldroot[i]);
 
     if(hdr.worldsize > 0x1000) splitocta(worldroot, hdr.worldsize>>1);
 
