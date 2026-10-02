@@ -543,6 +543,31 @@ void clearmodel(char *name)
 
 COMMAND(0, clearmodel, "s");
 
+void reloadmappackageassets(const char *map)
+{
+    defformatstring(prefix, "csgopen/imported/%s/", map);
+    path(prefix);
+    vector<char *> names;
+    enumerate(models, model *, m,
+    {
+        defformatstring(name, "%s", m->name);
+        path(name);
+        if(!strncmp(name, prefix, strlen(prefix))) names.add(newstring(m->name));
+    });
+    loopv(names) clearmodel(names[i]);
+    names.deletearrays();
+    enumerate(failedmodels, char *, n,
+    {
+        defformatstring(name, "%s", n);
+        path(name);
+        if(!strncmp(name, prefix, strlen(prefix))) names.add(n);
+    });
+    loopv(names) failedmodels.remove(names[i]);
+    names.deletearrays();
+    extern void reloadmappackagetextures(const char *prefix);
+    reloadmappackagetextures(prefix);
+}
+
 void enummodels()
 {
     vector<char> buf;

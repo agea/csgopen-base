@@ -1,4 +1,4 @@
-APPNAME = redeclipse
+APPNAME = eclipse-recoil
 APPCLIENT = $(APPNAME)
 APPSERVER = $(APPNAME)_server
 
@@ -442,6 +442,8 @@ clean: clean-enet clean-client clean-server clean-genkey clean-tessfont
 
 %-standalone.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $(subst -standalone.o,.cpp,$@)
+
+game/client.o game/server.o game/server-standalone.o: shared/mappackage.h
 
 support/jsmn.o: support/jsmn.c
 	$(CC) $(SYS_FLAGS) -c -o support/jsmn.o support/jsmn.c -w

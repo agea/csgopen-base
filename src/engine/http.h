@@ -103,6 +103,7 @@ struct httpvars
 
 struct httpreq
 {
+    stream *responsebody;
     ENetAddress address;
     ENetSocket socket;
     int state, reqtype, contype;
@@ -114,10 +115,11 @@ struct httpreq
     httpvars inhdrs, outhdrs, vars;
 
     httpreq() { reset(); }
-    ~httpreq() {}
+    ~httpreq() { DELETEP(responsebody); }
 
     void reset()
     {
+        responsebody = NULL;
         state = HTTP_S_START;
         reqtype = HTTP_T_ERROR;
         contype = HTTP_C_NONE;
@@ -157,15 +159,21 @@ struct httpclient;
 typedef void (__cdecl *httpcb)(httpclient *c);
 struct httpclient : httpreq
 {
+    stream *download;
+    int downloadlimit, received;
+    uint downloadcrc;
     int port, uid;
     httpcb callback;
     bigstring data;
 
     httpclient() { reset(); }
-    ~httpclient() {}
+    ~httpclient() { DELETEP(download); }
 
     void reset()
     {
+        download = NULL;
+        downloadlimit = received = 0;
+        downloadcrc = crc32(0, NULL, 0);
         port = 0;
         uid = -1;
         data[0] = 0;
@@ -227,6 +235,9 @@ namespace http
     extern int vardecode(const char *str, httpvars &vars);
     extern bool addcommand(const char *name, httpfun fun);
     extern httpclient *retrieve(const char *serv, int port, int type, const char *path, httpcb callback, const char *data = NULL, int uid = -1);
+    extern httpclient *retrievefile(const char *serv, int port, const char *path, const char *file, int size, httpcb callback);
+    extern void cancel(httpclient *c);
+    extern int getserverport();
     extern void cleanup();
     extern void init();
     extern void runframe();

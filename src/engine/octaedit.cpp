@@ -3586,6 +3586,36 @@ void editmat(char *name, char *filtername, int *style)
 }
 COMMAND(0, editmat, "ssi");
 
+void editmatbox(char *name, int *ox, int *oy, int *oz, int *sx, int *sy, int *sz, int *grid)
+{
+    // Scripted importers need to create material volumes outside the current
+    // camera view. Keep the normal edit-mode and multiplayer edit path, but
+    // construct an explicit validated selection instead of using the cursor.
+    if(noedit(true)) return;
+    if(*grid <= 0 || (*grid & (*grid - 1)) || *sx <= 0 || *sy <= 0 || *sz <= 0)
+    {
+        conoutf(colourred, "Invalid material box");
+        return;
+    }
+    int id = findmaterial(name, true);
+    if(id < 0)
+    {
+        conoutf(colourred, "Unknown material \"%s\"", name);
+        return;
+    }
+    selinfo box;
+    box.o = ivec(*ox, *oy, *oz);
+    box.s = ivec(*sx, *sy, *sz);
+    box.grid = *grid;
+    if(!box.validate())
+    {
+        conoutf(colourred, "Material box lies outside the map");
+        return;
+    }
+    mpeditmat(id, -1, 2, box, true);
+}
+COMMAND(0, editmatbox, "siiiiiii");
+
 #define EDITSTAT(name, type, val) \
     ICOMMAND(0, editstat##name, "", (), \
     { \
@@ -3612,4 +3642,3 @@ EDITSTAT(glde, int, glde);
 EDITSTAT(geombatch, int, gbatches);
 EDITSTAT(oq, int, getnumqueries());
 EDITSTAT(pvs, int, getnumviewcells());
-

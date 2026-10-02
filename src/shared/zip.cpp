@@ -114,10 +114,11 @@ static bool findzipdirectory(FILE *f, zipdirectoryheader &hdr)
 VAR(0, dbgzip, 0, 0, 1);
 #endif
 
-static bool readzipdirectory(const char *archname, FILE *f, int entries, int offset, uint size, vector<zipfile> &files)
+static bool readzipdirectory(const char *archname, FILE *f, int entries, int offset, uint size, vector<zipfile> &files, bool strict = false)
 {
     uchar *buf = new (false) uchar[size], *src = buf;
     if(!buf || fseek(f, offset, SEEK_SET) < 0 || fread(buf, 1, size, f) != size) { delete[] buf; return false; }
+    int parsed = 0;
     loopi(entries)
     {
         if(src + ZIP_FILE_SIZE > &buf[size]) break;
@@ -141,6 +142,11 @@ static bool readzipdirectory(const char *archname, FILE *f, int entries, int off
         hdr.externalattribs = lilswap(*(uint *)src); src += 4;
         hdr.offset = lilswap(*(uint *)src); src += 4;
         if(hdr.signature != ZIP_FILE_SIGNATURE) break;
+        size_t span = size_t(hdr.namelength) + hdr.extralength + hdr.commentlength;
+        if(span > size_t(&buf[size] - src)) break;
+        if(strict && (!hdr.namelength || hdr.namelength >= sizeof(string) || (hdr.flags&1) ||
+            (hdr.compression && hdr.compression != Z_DEFLATED) || memchr(src, 0, hdr.namelength))) break;
+        parsed++;
         if(!hdr.namelength || !hdr.uncompressedsize || (hdr.compression && (hdr.compression != Z_DEFLATED || !hdr.compressedsize)))
         {
             src += hdr.namelength + hdr.extralength + hdr.commentlength;
@@ -152,6 +158,11 @@ static bool readzipdirectory(const char *archname, FILE *f, int entries, int off
         int namelen = min((int)hdr.namelength, (int)sizeof(pname)-1);
         memcpy(pname, src, namelen);
         pname[namelen] = '\0';
+        if(strict && (strstr(pname, "..") || strchr(pname, '\\') || strchr(pname, ':') || pname[0] == '/'))
+        {
+            parsed--;
+            break;
+        }
         path(pname);
         char *name = newstring(pname);
 
@@ -168,7 +179,7 @@ static bool readzipdirectory(const char *archname, FILE *f, int entries, int off
     }
     delete[] buf;
 
-    return files.length() > 0;
+    return files.length() > 0 && (!strict || parsed == entries);
 }
 
 static bool readlocalfileheader(FILE *f, ziplocalfileheader &h, uint offset)
@@ -265,7 +276,7 @@ static void mountzip(ziparchive &arch, vector<zipfile> &files, const char *mount
     }
 }
 
-bool addzip(const char *name, const char *mount = NULL, const char *strip = NULL)
+bool addzip(const char *name, const char *mount = NULL, const char *strip = NULL, const char *map = NULL)
 {
     string pname;
     copystring(pname, name);
@@ -288,11 +299,44 @@ bool addzip(const char *name, const char *mount = NULL, const char *strip = NULL
     }
     zipdirectoryheader h;
     vector<zipfile> files;
-    if(!findzipdirectory(f, h) || !readzipdirectory(pname, f, h.entries, h.offset, h.size, files))
+    if(!findzipdirectory(f, h) || (map && h.size > 64*1024*1024) ||
+        !readzipdirectory(pname, f, h.entries, h.offset, h.size, files, map != NULL))
     {
         conoutf(colourred, "Could not read directory in zip %s", pname);
         fclose(f);
         return false;
+    }
+
+    if(map)
+    {
+        // A downloaded package may supply only this map and its imported assets.
+        defformatstring(mapbase, "maps/%s.", map);
+        defformatstring(assetbase, "csgopen/imported/%s/", map);
+        path(mapbase);
+        path(assetbase);
+        bool hasmap = false, hascfg = false, valid = true;
+        ullong unpacked = 0;
+        loopv(files)
+        {
+            const char *n = files[i].name;
+            unpacked += files[i].size;
+            if(strstr(n, "..") || strchr(n, ':') || n[0] == '/' || n[0] == '\\' ||
+                unpacked > 2ULL*1024*1024*1024) { valid = false; break; }
+            if(!strncmp(n, mapbase, strlen(mapbase)))
+            {
+                const char *ext = n + strlen(mapbase);
+                if(!strcmp(ext, "mpz")) hasmap = true;
+                else if(!strcmp(ext, "cfg")) hascfg = true;
+                else if(strcmp(ext, "png") && strcmp(ext, "txt") && strcmp(ext, "wpt")) { valid = false; break; }
+            }
+            else if(strncmp(n, assetbase, strlen(assetbase))) { valid = false; break; }
+        }
+        if(!valid || !hasmap || !hascfg)
+        {
+            conoutf(colourred, "Rejected map package %s: invalid contents", pname);
+            fclose(f);
+            return false;
+        }
     }
 
     ziparchive *arch = new ziparchive;
@@ -303,6 +347,11 @@ bool addzip(const char *name, const char *mount = NULL, const char *strip = NULL
 
     conoutf(colourwhite, "Added zip %s", pname);
     return true;
+}
+
+bool addmapzip(const char *name, const char *map)
+{
+    return addzip(name, "", "", map);
 }
 
 bool removezip(const char *name)
@@ -593,4 +642,3 @@ int listzipfiles(const char *dir, const char *ext, vector<char *> &files)
 
 ICOMMAND(0, addzip, "sss", (const char *name, const char *mount, const char *strip), addzip(name, mount[0] ? mount : NULL, strip[0] ? strip : NULL));
 ICOMMAND(0, removezip, "s", (const char *name), removezip(name));
-

@@ -20,23 +20,23 @@ jobs:
           - platform: macos
             arch: arm64
             runner: macos-15
-            binary: src/redeclipse_native
+            binary: src/eclipse-recoil_native
           - platform: macos
             arch: x86_64
             runner: macos-15-intel
-            binary: src/redeclipse_native
+            binary: src/eclipse-recoil_native
           - platform: linux
             arch: x86_64
             runner: ubuntu-22.04
-            binary: src/redeclipse_linux
+            binary: src/eclipse-recoil_linux
           - platform: linux
             arch: arm64
             runner: ubuntu-22.04-arm
-            binary: src/redeclipse_linux
+            binary: src/eclipse-recoil_linux
           - platform: windows
             arch: x86_64
             runner: windows-2022
-            binary: src/redeclipse_windows_amd64.exe
+            binary: src/eclipse-recoil_windows_amd64.exe
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
       RELEASE_PLATFORM: ${{ matrix.platform }}
@@ -84,6 +84,7 @@ jobs:
         shell: bash
         run: |
           python3 scripts/release/test_package.py
+          python3 scripts/release/test_installers.py
           if [[ "$RUNNER_OS" == macOS ]]; then
             export PKG_CONFIG_PATH="$(brew --prefix openal-soft)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
             jobs=$(sysctl -n hw.ncpu)
@@ -101,10 +102,11 @@ jobs:
         shell: msys2 {0}
         run: |
           python scripts/release/test_package.py
+          python scripts/release/test_installers.py
           python scripts/release/windows-icon.py
           make -C src -j"$(nproc)" client WINDOWS_PKG_CONFIG=1 \
             PLATFORM_BUILD="$GITHUB_RUN_NUMBER" PLATFORM_BRANCH="$GITHUB_REF_NAME" PLATFORM_REVISION="$GITHUB_SHA" \
-            WINRES_FLAGS='-i ../.csgopen/windows-resources/eclipse-recoil.rc -I . -J rc -o redeclipse.res -O coff -F pe-x86-64'
+            WINRES_FLAGS='-i ../.csgopen/windows-resources/eclipse-recoil.rc -I . -J rc -o eclipse-recoil.res -O coff -F pe-x86-64'
           python scripts/release/package.py --platform "$RELEASE_PLATFORM" \
             --arch "$RELEASE_ARCH" --binary "$RELEASE_BINARY" \
             --commit "$GITHUB_SHA" --build "$GITHUB_RUN_NUMBER"
@@ -137,6 +139,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout release installer templates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
       - name: Download all five client packages
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
@@ -150,27 +157,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          tag="build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:8}"
+          python3 scripts/release/installers.py --output packages \
+            --repository "$GH_REPO" --tag "$tag" --commit "$GITHUB_SHA" --build "$GITHUB_RUN_NUMBER"
           cd packages
           for target in macos-arm64 macos-x86_64 linux-x86_64 linux-arm64 windows-x86_64; do
             manifest="eclipse-recoil-$target.files.sha256"
             test -s "$manifest"
             sha256sum --check "$manifest"
           done
-          tag="build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:8}"
-          cat > release-notes.md <<EOF
-          Eclipse Recoil — Be kind, reload
-
-          Client builds for macOS Apple Silicon and Intel, Linux x86_64 and ARM64, and Windows x86_64.
-          Every archive includes game assets, runtime libraries and the Eclipse Recoil launcher. No dedicated server is included.
-
-          Large archives are split into .001, .002, etc. to fit GitHub's asset limit. Download every part for your platform, its .files.sha256 file and its extraction script into the same folder.
-          macOS: run sh eclipse-recoil-macos-<architecture>-extract.command in Terminal. Linux: run sh eclipse-recoil-linux-<architecture>-extract.sh. Windows: download both -extract.bat and -extract.ps1, then open the .bat file.
-          The script checks, joins and extracts the parts. Then open Eclipse Recoil.app (macOS), run ./eclipse-recoil.sh (Linux), or open Eclipse Recoil.bat (Windows). Smaller archives can be extracted directly.
-          Requires macOS 15+, Linux with glibc 2.35+, or Windows 10+ x64, and an OpenGL 3.3-capable graphics driver.
-          The macOS apps are ad-hoc signed, without Apple notarization.
-
-          Commit: $GITHUB_SHA
-          EOF
           if state=$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null); then
             if [[ "$state" == false ]]; then
               echo "Release $tag is already published."

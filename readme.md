@@ -2,16 +2,31 @@
 
 *Be kind, reload*
 
-Eclipse Recoil is a multiplayer first-person shooter built from a fork of Red Eclipse.
-Its goal is a two-team Deathmatch experience inspired by Counter-Strike: Global
-Offensive, with deliberate ground movement and weapons developed toward that
-style of play. Changes are introduced in small, testable steps while the
-original Red Eclipse gameplay remains available as a reference.
+Eclipse Recoil is a multiplayer first-person shooter focused on two-team
+Deathmatch, deliberate ground movement, and tactical weapon loadouts. Changes
+are introduced in small, testable steps while the original gameplay remains
+available as a compatibility profile.
 
-The current scope is a native macOS development baseline and a separate TDM
-prototype using existing maps and assets. Community map conversion and a
-dedicated Linux server are longer-term goals. The current movement and weapon
-settings are prototype values, not a faithful reproduction of CS:GO.
+The current scope includes native desktop clients, a dedicated server, and map
+conversion tools for bringing community maps into the game. Movement and weapon
+settings are still prototype values rather than a frame-perfect recreation of
+another title.
+
+## Download and play
+
+The next release includes automatic installers. On macOS or Linux, open
+Terminal and run:
+
+```bash
+curl -fL https://github.com/agea/eclipse-recoil/releases/latest/download/eclipse-recoil-install.sh -o eclipse-recoil-install.sh && bash eclipse-recoil-install.sh
+```
+
+One script selects the native client, downloads its files, checks SHA-256,
+joins any split archive and extracts the game. Each
+[release page](https://github.com/agea/eclipse-recoil/releases) includes the
+command for that specific build and the Windows PowerShell equivalent.
+See the [release guide](doc/csgopen/releases.md#quick-install) for Windows,
+destinations and system requirements.
 
 ## Equipment
 
@@ -28,132 +43,26 @@ runtime libraries and the Eclipse Recoil launcher; dedicated-server binaries
 are excluded. See the [release guide](doc/csgopen/releases.md) for downloads,
 requirements and workflow details.
 
-The TDM launcher uses the Eclipse Recoil splash, menu logo and application icon supplied
-for this project. The loading artwork keeps its full proportions, including
-the title and tagline; loading status remains visible.
+The default launcher uses the Eclipse Recoil splash, menu logo and application
+icon supplied for this project. The loading artwork keeps its full proportions,
+including the title and tagline; loading status remains visible.
 
-See the [Eclipse Recoil development guide](doc/csgopen/README.md) for macOS setup,
-build commands, separate original/TDM profiles, and the local dedicated server.
-The [gameplay reference](doc/csgopen/gameplay.md) documents settings and engine
-changes, and the [validation report](doc/csgopen/validation.md) records executed
-tests and the remaining manual checklist.
+See the [Eclipse Recoil development guide](doc/csgopen/README.md) for macOS
+setup, build commands, compatibility profiles, map conversion, and the local
+dedicated server. The [gameplay reference](doc/csgopen/gameplay.md) documents
+settings and engine changes, and the
+[validation report](doc/csgopen/validation.md) records executed tests and the
+remaining manual checklist.
 
-The native client and dedicated server build and launch successfully on the
-tested arm64 Mac, and the local network smoke test passes. Visual inspection
-and keyboard/mouse gameplay testing remain open.
+The native development server reads its first map and rotation from
+`config/csgopen/server-maps.cfg`, supports end-of-match voting, and serves
+complete custom-map ZIPs to Eclipse Recoil clients automatically. Downloaded
+maps are verified and cached in the client profile. See the development guide
+for the current loopback HTTP setup and validation results.
 
-## Red Eclipse upstream reference
+## Licensing and attribution
 
-The following documentation is retained for upstream background, credits, and
-licensing. Its distribution and community links refer to Red Eclipse; use the
-Eclipse Recoil development guide above for this fork.
-
-Red Eclipse is an old-school arena shooter for the modern age. Building on decades of hardcore
-    action, from Doom, to Quake, to Halo, to Team Fortress, to Mirror's Edge. Run, gun, and parkour
-    your way to your next frag!
-
-    * Free and open source software; no microtransactions or other payments necessary
-    * Features parkour gameplay, such as wall running, boosts, dashing, and other tricks
-    * Popular gamemodes with an array of mutators and variables
-    * A built-in editor lets you create your own release-quality maps cooperatively online
-    * Available for Windows and GNU/Linux
-
-Download for free at https://www.redeclipse.net/
-
-## About
-
-The project is a free and open source game built using SDL and OpenGL which allows it to be ported
-    to many platforms; you can [download a package](https://www.redeclipse.net/download) for Windows
-    and GNU/Linux; or grab a development copy from our [Git repository](https://www.redeclipse.net/devel)
-    and live on the bleeding edge.
-
-In a true open source by the people for the people nature, we try to work closely with the gaming
-    and open source communities to provide a better overall experience, aiming to create a game
-    environment that is fun and easy to play, while still having elements to master.
-
-If you think you might have something to contribute to the game or community, please feel free to
-    drop by our [Discord server](https://www.redeclipse.net/chat) or [forums](https://www.redeclipse.net/forums)
-    and talk to us directly. We try to maintain a standard of friendly behaviour in our community,
-    so don't be afraid to speak up and have your say in building this game for us all!
-
-For creators, the full power of a highly expanded [Tesseract](http://tesseract.gg/) engine is at
-    your fingertips in the included realtime easy-to-use WYSIWYG editor that is capable of creating
-    maps both offline and online with other people in cooperative edit mode.
-
-## Distribution
-
-This game is primarily distributed via Steam. For the most bleeding-edge version of the game, or
-    for those who are unable to get a Steam account, it is possible to compile the game from
-    source, following the [Install Guide](https://www.redeclipse.net/docs/Install-Guide).
-
-## Get Involved
-
-You're encouraged to help the project by joining in with the rest of the community to make a better
-    project! You can do this by participating in our Community, using the development version and
-    reporting any issues, ideas, suggestions or comments you may have.
-
-Our main method of community interaction is via the [Discord server](https://www.redeclipse.net/chat).
-    Here, you can talk directly to the Red Eclipse developers, contributors, and supporters;
-    whether you just want to have a chat, report a problem, or make a suggestion, this is the best
-    place to do it.
-
-## Open Source
-
-The project is Free and Open Source, meaning that you can both use it for free and be a part of it
-    by contributing in whatever way you can. These are the people who have helped shape Red Eclipse
-    into what you see today. They are regular people just like you who volunteer their time or
-    donate in the spirit of making a really cool game. Your name could be down here, too!
-
-## Credits
-
-```
-+-------------------------------------------------------------------------------+
-|                               ACTIVE DEVELOPERS                               |
-+---------------------------------------+---------------------------------------+
-| Quinton "Quin" Reeves                 | Lee "eihrul" Salzman                  |
-| Sławomir "Q009" Błauciak              | Ricky "unixfreak" Thomson             |
-| Ludwig "SniperGoth" Boscolo           | Viktor "Unnamed" Hahn                 |
-| Paranoid "Rabidbutton" Individual     | Evan "EG Music" Koutsogiannis         |
-| Lovable "MirceaKitsune" Fox           | Jacinta "cinta" Reeves                |
-| Drachen "dc" Computer                 | Renato "Tangomeister" Pagge           |
-+-------------------------------------------------------------------------------+
-|                         CONTRIBUTORS PAST AND PRESENT                         |
-+-------------------------------------------------------------------------------+
-| Alex "molex" Foster                   | Alex "ZeroKnight" George              |
-| Anup "DOS_WARRIOR" Debnath            | Cameron "Rhubarb" Dawdy               |
-| Christopher "Dratz-_C" Dratz          | Christopher "paroneayea" Webber       |
-| Corey "c0rdawg" Maher                 | Dale "graphitemaster" Weiler          |
-| Daniel "Imerion" Eriksson             | David "srbs" Forrest                  |
-| Derek "JoJo" Stegall                  | Eddie "skedz4u" Webb                  |
-| Henrik "ahven" Pihl                   | Isaac "Zelec" Towns                   |
-| Jeff "Architect" Cope                 | Jeroen "appleflap" Boukens            |
-| Jonathan "Ulukai" De Nil              | Jonathan "W!ck3d" Roels               |
-| Joseph "ballist1c" Calabria           | Joshua "JDWhyte" Dwight               |
-| Joshua L. "Verbalshadow" Blocher      | Kevin "Hirato" Meyer                  |
-| Kirill "TristamK" Kolesnikov          | Kurt "Kurtis84" Kessler               |
-| Luke "syreal" Jones                   | Mark "xtort-" Doodeman                |
-| Martin "arand" Werner                 | Matt "greaserpirate" Kalt             |
-| Maxim "Acerspyro" Therrien            | Mike "mikeplus64" Ledger              |
-| Mikhail "Agustis" Kashin              | Nick "Fatal_Glory" Watts              |
-| Peter McInerney                       | Petri Lukkarinen                      |
-| Radek "Dziq" Jędrecki                 | Riidom Li                             |
-| Rob "Lloir" Shannon                   | Robert "Homicidal" Crane              |
-| Robert Winkler                        | Ryan "icculus" Gordon                 |
-| Ryan Rigby                            | Rémi "LuckystrikeRx" Clouet d'Orval   |
-| Sam "comet_11" Gentle                 | Scott Baker                           |
-| Sergey "swooboo" Altshuller           | Stefan "stefan" Norman                |
-| Sébastien "sinma" Chauvel             | Taiyo Rawle                           |
-| Vadim Peretokin                       | Wayne Bennett                         |
-| Zachery "freezurbern" Slocum          |                                       |
-+---------------------------------------+---------------------------------------+
-| "Gaming Tilt"     | "4rson"           | "Beha"            | "Bobbo"           |
-| "bonifarz"        | "Boognish"        | "CD Xbow"         | "D.a.M.i.E.n"     |
-| "Lyberta"         | "fbt"             | "FearFighter"     | "Fleeky"          |
-| "fluxord"         | "Furor"           | "Iceflower"       | "John_III"        |
-| "Korsi"           | "littlebabyjesus" | "Lycanfox"        | "nemurati"        |
-| "Raiden"          | "RaZgRiZ"         | "TheAssassin"     | "TheLastProject"  |
-| "w00p|dazza"      |                   |                   |                   |
-+-------------------------------------------------------------------------------+
-| YOUR NAME COULD BE HERE TOO - RED ECLIPSE IS DEVELOPED BY VOLUNTEERS LIKE YOU |
-+-------------------------------------------------------------------------------+
-```
+Eclipse Recoil includes third-party engine code and assets under their
+respective licenses. Copyright notices, source attribution, trademark notices,
+and redistribution terms are retained in [the license](doc/license.txt) and
+[the complete license inventory](doc/all-licenses.txt).

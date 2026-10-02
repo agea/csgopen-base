@@ -69,9 +69,9 @@ const char *getverstr()
 {
     if(!*verstr)
     {
-        defformatstring(branch, "%s", versionbranch);
-        if(versionbuild > 0) concformatstring(branch, "-%d", versionbuild);
-        formatstring(verstr, "%s %s-%s%d-%s %s (%s) [%s]", versionname, versionstring, versionplatname, versionarch, branch, versionisserver ? "server" : "client", versionrelease, versioncomp);
+        defformatstring(build, "Development build");
+        if(versionbuild > 0) formatstring(build, "Build %d", versionbuild);
+        formatstring(verstr, "%s %s-%s%d-%s %s [%s]", versionname, build, versionplatname, versionarch, versionbranch, versionisserver ? "server" : "client", versioncomp);
     }
     return verstr;
 }

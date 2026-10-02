@@ -547,7 +547,7 @@ void writehistory()
 {
     stream *f = openfile("history.cfg", "w");
     if(!f) return;
-    f->printf("// console history written automatically by Red Eclipse\n\n");
+    f->printf("// console history written automatically by Eclipse Recoil\n\n");
     loopv(history)
     {
         hline *h = history[i];

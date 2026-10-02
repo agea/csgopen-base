@@ -294,7 +294,7 @@ def package(args):
         "Windows requires Windows 10+ x64. No dedicated server is included.\n"
         f"Source: https://github.com/agea/eclipse-recoil/tree/{args.commit}\n")
     for path in top.rglob("*"):
-        if ".git" in path.parts or "redeclipse_server" in path.name:
+        if ".git" in path.parts or "eclipse-recoil_server" in path.name:
             raise RuntimeError(f"Unexpected package content: {path}")
     # Sign only after every resource has been written.
     if args.platform == "macos":

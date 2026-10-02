@@ -2,6 +2,7 @@
 #define CPP_GAME_HEADER
 
 #include "engine.h"
+#include "mappackage.h"
 
 #define VERSION_GAMEID "fps"
 #define VERSION_GAME 282

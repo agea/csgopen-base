@@ -482,7 +482,7 @@
     <Image Include="..\redeclipse.ico" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="..\redeclipse.rc" />
+    <ResourceCompile Include="..\eclipse-recoil.rc" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
