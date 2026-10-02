@@ -1121,3 +1121,81 @@ mid-download disconnection, replacing a package version while reusing loaded
 assets, cross-platform runtime behavior, and visual progress-bar QA remain
 manual checks. This initial transport is HTTP, not HTTPS, and the launcher
 still supports local loopback testing rather than public/LAN deployment.
+
+
+## Release build label (2026-10-02)
+
+The shared menu/loading-screen version formatter now reports `Build N` from
+`versionbuild`. The window title and native client/server version banner use
+that same build number. Unnumbered local binaries report `Development build`;
+`versionstring` retains the upstream engine version for diagnostics. Code
+inspection confirms all release platforms already compile with
+`PLATFORM_BUILD="$GITHUB_RUN_NUMBER"`, matching the release tag and manifest.
+
+Executed on macOS arm64:
+
+- Native client/server builds passed for build 4 and for the restored default
+  local build. Logs: `.csgopen/logs/build-version-4-build.log` and
+  `.csgopen/logs/build-version-final-local-build.log`.
+- The running build-4 client evaluated the shared UI formatter and produced
+  `VERSION_CHECK NUMBER 4 LABEL Build 4 ENGINE 2.0.9` and
+  `VERSION_CHECK_PASS`. Both client and dedicated-server version banners
+  reported `Eclipse Recoil Build 4`. Logs:
+  `.csgopen/logs/build-version-4-client.log` and
+  `.csgopen/logs/build-version-4-server.log`.
+- The full gameplay smoke test on the loopback dedicated server passed:
+  **`SMOKE_DONE FAILURES 0`**, including respawn and the change to Dutility.
+  Log: `.csgopen/logs/build-version-4-client.log`.
+- After restoring the local build, the running client produced
+  `VERSION_CHECK NUMBER 0 LABEL Development build ENGINE 2.0.9` and
+  `VERSION_CHECK_PASS`. Log: `.csgopen/logs/build-version-local-client.log`.
+
+These checks evaluate the actual UI text and engine version banner; visual
+layout inspection and other platform runs remain pending. Test processes were
+stopped, and no release was published.
+
+## Automatic release download installers (2026-10-02)
+
+The release publication job now generates two small, release-pinned assets:
+`eclipse-recoil-install.sh` for macOS/Linux and `eclipse-recoil-install.ps1`
+for Windows x86_64. Release notes lead with copyable commands for that exact
+build. README/release-guide commands use GitHub's latest-asset URL; the
+installer itself retains its original tag throughout the download. These
+assets become available when the next release containing this change is
+published; existing published releases were not modified.
+
+Both installers select the client, download its checksum manifest and files,
+verify SHA-256, join split parts when needed and extract into a new game
+folder. They reject existing installations, invalid filenames and missing or
+unordered parts. Verified downloads survive failure for retries; partial
+files and failed extraction directories are removed. Successful installation
+removes download files. The Bash script supports macOS's bundled Bash 3.2;
+Apple Silicon detection also handles an Intel/Rosetta terminal. Windows uses
+native `tar.exe` to extract ZIPs, including archives exceeding 2 GiB, and
+supports Windows PowerShell 5.1. Neither installer executes downloaded legacy
+extraction helpers or starts the game.
+
+Executed checks on macOS arm64:
+
+- `python3 scripts/release/test_installers.py -v`: **12 passed, 2 skipped**.
+  Small local HTTP fixtures exercised the real Bash installer with simulated
+  OS/CPU detection for macOS ARM64/Intel and Linux ARM64/x86_64, including
+  single and split archives, a destination containing spaces, checksum
+  failure/retry with cache reuse, malformed paths, a missing part, invalid
+  archives, unsupported CPUs and preserving existing installations. macOS
+  extraction used native `ditto`; Linux fixtures used `tar`. Metadata checks
+  verified pinned tags, build/commit consistency and release instructions.
+  Log: `.csgopen/logs/release-installer-tests.log`.
+- The two native Windows installer tests were skipped because PowerShell and
+  Windows `tar.exe` are unavailable on this Mac. Windows integration tests,
+  including the same failure/retry cases, now run in the Windows release job.
+- `python3 scripts/release/test_package.py`: **10 passed**. Log:
+  `.csgopen/logs/release-installer-package-tests.log`.
+- Workflow YAML parsed successfully with Ruby YAML. All four workflow shell
+  blocks and the generated Bash installer passed `bash -n`; Python source
+  compilation and `git diff --check` passed.
+
+Fixtures and generated preview notes remain under `.csgopen/`; HTTP servers
+were loopback-only and were stopped after testing. Actual public asset
+availability, native Linux/Windows runs, and multi-gigabyte end-to-end
+installation remain CI/release checks. No release was published locally.

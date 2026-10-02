@@ -12,6 +12,22 @@ conversion tools for bringing community maps into the game. Movement and weapon
 settings are still prototype values rather than a frame-perfect recreation of
 another title.
 
+## Download and play
+
+The next release includes automatic installers. On macOS or Linux, open
+Terminal and run:
+
+```bash
+curl -fL https://github.com/agea/eclipse-recoil/releases/latest/download/eclipse-recoil-install.sh -o eclipse-recoil-install.sh && bash eclipse-recoil-install.sh
+```
+
+One script selects the native client, downloads its files, checks SHA-256,
+joins any split archive and extracts the game. Each
+[release page](https://github.com/agea/eclipse-recoil/releases) includes the
+command for that specific build and the Windows PowerShell equivalent.
+See the [release guide](doc/csgopen/releases.md#quick-install) for Windows,
+destinations and system requirements.
+
 ## Equipment
 
 Open the loadout menu with **comma (,)**. Choose a primary weapon and keep the

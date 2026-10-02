@@ -2,6 +2,51 @@
 
 *Be kind, reload*
 
+## Quick install
+
+Starting with the next release, two small installers handle the download,
+SHA-256 verification, joining split archives and extraction automatically.
+You do not need to choose or download archive parts yourself.
+
+For the **latest release**, open Terminal on **macOS or Linux** and run:
+
+```bash
+curl -fL https://github.com/agea/eclipse-recoil/releases/latest/download/eclipse-recoil-install.sh -o eclipse-recoil-install.sh && bash eclipse-recoil-install.sh
+```
+
+The same Bash script detects macOS Apple Silicon / Intel and Linux ARM64 /
+x86_64. Running it with `bash` does not require `chmod` or opening a `.command`
+file in Finder. Homebrew, Python and a compiler are not needed.
+
+On **Windows x86_64**, open PowerShell and run:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing -Uri https://github.com/agea/eclipse-recoil/releases/latest/download/eclipse-recoil-install.ps1 -OutFile eclipse-recoil-install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\eclipse-recoil-install.ps1
+```
+
+The execution policy option applies only to that installer process. Windows
+ARM64 and 32-bit systems are not supported by these packages.
+
+The installer creates a folder named
+`eclipse-recoil-build-<number>-<commit>-<platform>-<architecture>` in your
+current directory and prints the exact game launcher path inside its `game`
+folder. Open the app on macOS, run the launcher on Linux, or open the `.bat`
+on Windows. To choose another destination, run
+`bash eclipse-recoil-install.sh "/path/to/game"`, or on Windows add
+`-Destination "C:\Games\Eclipse Recoil"` to the PowerShell command.
+
+Each release page includes copyable commands for **that specific build**.
+The downloaded installer embeds its release tag, so a newer release published
+during installation cannot mix files from different builds. Re-running after
+a failed download reuses files whose checksums already match. Existing game
+installations are rejected rather than overwritten. Successful installation
+removes the downloaded parts and temporary joined archive; no admin privileges
+or automatic game launch are required. The app's macOS approval requirements
+are described below.
+
+## Packages and manual downloads
+
 Every push to `master` runs `.github/workflows/release.yml`. Five native client
 builds run independently; the release is published only after all five builds,
 package checks and SHA-256 checks succeed. The workflow builds `make -C src
@@ -23,8 +68,16 @@ launcher applies Eclipse Recoil branding and starts an offline TDM match on
 Echo. A `.files.sha256` manifest accompanies each target; `release.json` inside
 it records the source commit, build number, architecture and included library names.
 
-The complete asset set makes current archives larger than GitHub's 2 GiB
-per-file limit. These archives are split into 1500 MiB parts (`.001`, `.002`,
+The menu, loading screens and window title display **Build N**, using the same
+workflow run number embedded in the binary and recorded in `release.json`.
+For example, release run 4 displays **Build 4** on every platform. The number
+is assigned automatically; failed or unpublished runs may leave gaps. Local
+builds without `PLATFORM_BUILD` display **Development build**. The upstream
+engine version remains available as `versionstring` for diagnostics and does
+not determine the release label.
+
+For manual downloads, the complete asset set makes current archives larger
+than GitHub's 2 GiB per-file limit. These archives are split into 1500 MiB parts (`.001`, `.002`,
 etc.) without changing or removing game content. Download **all files for your
 platform and architecture** into one directory, including its checksum manifest
 and extraction helper:
@@ -77,8 +130,12 @@ with their respective asset directories.
 
 Release tags are `build-<workflow run number>-<short commit>`. A release is
 created as a draft, all five packages, their parts/helpers and checksums are
-uploaded, and only then is it published. It becomes the latest release if its commit is still the head
-of `master`, so a slower older build cannot replace a newer release. Retrying
+uploaded together with `eclipse-recoil-install.sh` and
+`eclipse-recoil-install.ps1`, and only then is it published. The publication
+job generates the installers and release instructions from the release's
+recorded tag, build and commit. Installer integration tests run on the build
+hosts before packaging. It becomes the latest release if its commit is still
+the head of `master`, so a slower older build cannot replace a newer release. Retrying
 the same run reuses its draft tag and replaces draft assets; an already
 published release is left intact. Each push creates a new release rather than
 overwriting a rolling tag. Older releases remain available.

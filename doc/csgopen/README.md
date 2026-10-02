@@ -27,7 +27,11 @@ testing remain open. See the [results and checklist](validation.md) and the
 For client downloads and the automatic `master` release workflow, see the
 [release guide](releases.md). It covers macOS Apple Silicon and Intel, Linux
 x86_64 and ARM64, and Windows x86_64; release packages exclude the dedicated
-server.
+server. Starting with the next release, a single Bash installer selects the
+correct macOS/Linux client and downloads, verifies, joins and extracts its
+files. Windows has a PowerShell installer. See
+[quick installation](releases.md#quick-install) or copy the commands from a
+specific release page; no compiler is needed to play.
 
 You need an active Xcode/Command Line Tools installation, Homebrew matching
 the architecture reported by `uname -m`, and a checkout with its recorded
