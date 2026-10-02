@@ -962,6 +962,77 @@ disabled by default and available only through the explicit experimental
 mapmodel definitions (one world shell, 72 collision carriers, and 62 prop
 tiles), no fallback model reference, and retains the panel-aware prop reducer.
 
+Safehouse exposed the older version-10 static-prop layout: its 318 records are
+76 bytes each and predate the version-11 per-instance scale field. The parser
+now accepts versions 10 and 11, assigning Source's default scale of `1.0` to
+version-10 props; an isolated fixture covers this layout and all 11 Source BSP
+tests pass. A direct conversion of the local CS:GO Legacy `de_safehouse.bsp`
+resolved all 93 world materials, supported all 25 player starts, decoded all 91
+prop models and wrote all 318 prop instances into 45 tile models. The package
+compiled to an MPZ, loaded in TDM, captured a 1280x720 screenshot, emitted
+`SOURCEPLAY_DONE de_safehouse`, and exited normally. The screenshot confirms
+the house, terrain, walls, trees and fences render, but also shows the expected
+lighting and foliage differences from the Source runtime; complete route and
+collision traversal remains manual work.
+
+Interactive checks of Dust II, Safehouse and Lake showed the imported layout
+reflected left-to-right. Source BSP conversion now reflects X consistently in
+world render geometry, brush/displacement collision, static props and player
+starts; spawn yaw is reflected with the same transform. Lake also exposed
+passable rocks and bot sight through them because every prop tile explicitly
+used `mdlcollide 0`. The prop exporter now emits separate invisible triangle
+carriers for Source props whose solid type is nonzero, leaving decorative
+foliage passable. The rebuilt Lake package contains 257 solid props in 35
+collision tile models and 457,752 double-sided collision triangles. It loaded,
+captured a 1280x720 screenshot, emitted `SOURCEPLAY_COLLISION_DONE de_lake`,
+and exited normally. Twenty-one converter tests and `git diff --check` pass;
+manual traversal against representative rocks and a bot line-of-sight check
+remain required because the carriers approximate, rather than decode, PHY
+hulls.
+
+Dust II and Safehouse were then rebuilt through the same corrected path.
+Safehouse retained 25/25 supported starts and 93/93 resolved world materials;
+226 solid props produced 41 collision tiles. Dust II retained 30/30 starts and
+81/81 resolved world materials; 1,010 solid props produced 36 collision tiles.
+Both packages loaded in isolated TDM clients, emitted their respective
+`SOURCEPLAY_COLLISION_DONE` markers and exited normally.
+
+Lake's missing water was traced to a format mismatch rather than a missing
+bitmap: its generated CFG already declared Red Eclipse's native water texture,
+but the converter exported Source `SURF_WARP` faces as an ordinary OBJ and did
+not create any octree material volume. The BSP contains eight
+`CONTENTS_WATER` world brushes. Seven fall inside the playable envelope; the
+eighth is the remote 3D-skybox copy. The converter now emits seven grid-aligned
+`editmatbox water` operations, omits all Source warp surfaces from the render
+mesh, and reports water counts in its manifest. Lake rebuilt with 7/7 playable
+water volumes, 69 resolved world materials with none missing, and all 30
+player starts supported. A bot-free TDM client loaded the rebuilt MPZ, emitted
+`WATER_OMEGA_DONE de_lake`, and captured the native reflective water surface
+from the Omega side. Sixteen converter tests, the native client/server build,
+and `git diff --check` pass.
+
+The final corrected Dust II, Safehouse, and Lake packages were subsequently
+installed as one self-contained, Git-ignored ZIP per map in the
+main-repository-owned `data/csgopen` package root. Each archive carries its
+MPZ/CFG/preview plus generated models, collision carriers, and textures under
+their normal virtual paths. The TDM and dedicated-server launch paths add this
+package root and the engine mounts its ZIP files automatically; the
+original-game path remains isolated from it. After archive extraction checks
+and a load test from the persistent location, the expanded copies and the
+disposable `.csgopen` conversion workspace and profiles were removed. A later
+launcher invocation recreates only the runtime profile and log directories it
+needs.
+
+Bank was imported through the same self-contained path. Its Source BSP yielded
+38/38 supported starts, 148/148 resolved world materials, 9,997 rendered world
+triangles and no water brushes. Blender/Plumber decoded all 192 referenced prop
+models and wrote 716 playable instances; the simplified result contains
+303,003 prop triangles, while 459 solid props generated 26 collision tile
+models. A bot-free TDM client entered the match at a textured parking-lot
+spawn, then an isolated profile loaded `maps/de_bank` directly from the
+installed `data/csgopen/de_bank.zip` with no expanded map or imported-asset
+directory present and emitted `BANK_ZIP_DONE`.
+
 ### macOS desktop fullscreen resize loop — 1 October 2026
 
 The downloaded ARM64 release (build 3, commit
@@ -1001,3 +1072,52 @@ This establishes the resize-loop fix; it does not prove the original signal
 exclusive fullscreen and longer manual play remain untested for this change.
 The existing downloaded release can temporarily be launched with `-df0` to
 use a window until a release containing the engine fix is available.
+
+## Dedicated-server rotation and complete map packages (2026-10-02)
+
+The development server now loads `config/csgopen/server-maps.cfg` before its
+first map selection. With no map argument, `sv_defaultmap` is empty and
+`sv_mainmaps` supplies the initial and subsequent random rotation. The CFG
+sets 10-minute TDM matches, no score limit/overtime, 10 seconds of results,
+20 seconds of voting, and a 50% early-pass threshold. The native HTTP server
+serves the selected map's complete ZIP to the connected client's IP/port pair.
+The client validates size, CRC32, and archive namespace before mounting and
+loading. Original gameplay defaults leave package distribution/downloads off.
+
+Executed checks on macOS arm64:
+
+- Native client/server build passed with the upstream Makefile. Log:
+  `.csgopen/logs/server-maps-build.log`. No new runtime dependency was added.
+- `python3 scripts/csgopen/test_server_maps.py -v`: **5 tests passed**. An
+  isolated loopback server streamed an 8 MiB binary fixture byte for byte;
+  wrong versions, traversal, missing names, and maps outside the allowlist
+  returned 404. Additional fixture starts rejected ZIPs attempting to override
+  configuration, another map, or an imported path outside their namespace.
+  Log: `.csgopen/logs/server-maps-tests.log`.
+- A client installation without custom map ZIPs downloaded **63,810,457 bytes**
+  for `de_bank`, mounted the validated package, and loaded its imported models.
+  The cached file matched `data/csgopen/de_bank.zip` byte for byte, with CRC32
+  **90597195**. The final native build produced
+  `PACKAGE_FINAL_READY MAP maps/de_bank`, then the full existing gameplay smoke
+  test passed: **`SMOKE_DONE FAILURES 0`**, including respawn and switching to
+  Dutility. Log: `.csgopen/logs/map-download-final-client.log`.
+- A second connection using the downloaded cache produced `Using cached map
+  package: de_bank`, with no HTTP download and `PACKAGE_SPAWN_STATE 0` (alive).
+  Log: `.csgopen/logs/map-cache-client.log`.
+- Starting `scripts/csgopen/dev.sh server` without a map argument selected
+  `de_dust2` from the CFG, with a valid server-side MPZ CRC. The dedicated
+  server mounted the ZIP itself rather than asking the first client to upload
+  the map. That session also passed the original gameplay smoke test.
+  Log: `.csgopen/logs/server-maps-smoke-client.log`.
+- Shell syntax and `git diff --check` passed. All test servers used loopback,
+  with public registration and LAN discovery disabled; profiles, caches,
+  fixtures, and logs remained under `.csgopen/`.
+
+Code inspection confirms voting/fallback behavior in the existing server
+state machine and package interruption/failure handling. A shortened native
+rotation session ended before an automatic fallback transition was observed.
+Automatic fallback over a full match, voting with multiple human clients,
+mid-download disconnection, replacing a package version while reusing loaded
+assets, cross-platform runtime behavior, and visual progress-bar QA remain
+manual checks. This initial transport is HTTP, not HTTPS, and the launcher
+still supports local loopback testing rather than public/LAN deployment.

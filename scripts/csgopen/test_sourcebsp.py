@@ -45,6 +45,50 @@ def empty_bsp(**overrides):
 
 
 class SourceBspTest(unittest.TestCase):
+    def test_reads_version_10_static_props_with_default_scale(self):
+        model = b"models/props/de_safehouse/chair.mdl"
+        dictionary = model + b"\0" * (128 - len(model))
+        record = bytearray(76)
+        struct.pack_into("<3f", record, 0, 1.0, 2.0, 3.0)
+        struct.pack_into("<3f", record, 12, 4.0, 5.0, 6.0)
+        struct.pack_into("<3H2B", record, 24, 0, 0, 0, 6, 9)
+        struct.pack_into("<i", record, 32, 2)
+        prop_lump = (
+            struct.pack("<i", 1)
+            + dictionary
+            + struct.pack("<i", 0)
+            + struct.pack("<i", 1)
+            + record
+        )
+        prop_offset = 64
+        data = b"\0" * prop_offset + prop_lump
+        game_lump = struct.pack(
+            "<iIHHii",
+            1,
+            struct.unpack("<I", b"prps")[0],
+            0,
+            10,
+            prop_offset,
+            len(prop_lump),
+        )
+
+        props = sourcebsp._parse_static_props(data, game_lump, "fixture.bsp")
+
+        self.assertEqual(
+            props,
+            [
+                sourcebsp.StaticProp(
+                    model.decode(),
+                    (1.0, 2.0, 3.0),
+                    (4.0, 5.0, 6.0),
+                    6,
+                    9,
+                    2,
+                    1.0,
+                )
+            ],
+        )
+
     def test_preserves_spawn_origin_team_and_converts_yaw(self):
         bsp = empty_bsp(
             entities=[
@@ -54,10 +98,14 @@ class SourceBspTest(unittest.TestCase):
         )
         self.assertEqual(
             bsp.spawns()[0],
-            sourcebsp.Spawn("info_player_counterterrorist", "alpha", (1.0, 2.0, 3.0), 270.0),
+            sourcebsp.Spawn("info_player_counterterrorist", "alpha", (1.0, 2.0, 3.0), 90.0),
         )
         self.assertEqual(bsp.spawns()[1].team, "omega")
         self.assertEqual(bsp.spawns()[1].yaw, 0.0)
+
+    def test_reflects_source_x_for_expected_left_right_layout(self):
+        self.assertEqual(sourcebsp._target_position((1.0, 2.0, 3.0)), (-1.0, 2.0, 3.0))
+        self.assertEqual(sourcebsp._obj_position((1.0, 2.0, 3.0)), (-2.0, 3.0, -1.0))
 
     def test_displacement_grid_uses_source_row_layout_and_lod(self):
         side = 4
@@ -85,7 +133,7 @@ class SourceBspTest(unittest.TestCase):
         output = io.BytesIO()
         stats = sourcebsp._write_collision_obj(output, [triangle] * 100, "fixture.bsp")
         self.assertEqual(stats, {"vertices": 600, "triangles": 200})
-        self.assertIn(b"v -0 0 0\nv -0 0 1\nv -1 0 0\n", output.getvalue())
+        self.assertIn(b"v -0 0 -0\nv -0 0 -1\nv -1 0 -0\n", output.getvalue())
 
     def test_collision_partitions_follow_horizontal_centroids(self):
         def triangle(x, y):
@@ -120,6 +168,81 @@ class SourceBspTest(unittest.TestCase):
             sourcebsp.Brush(0, 6, 1), sides, planes, {4}
         )
         self.assertEqual(len(without_top), 10)
+
+    def test_extracts_playable_water_brush_and_quantizes_selection(self):
+        planes = [
+            sourcebsp.Plane((1.0, 0.0, 0.0), 9.0),
+            sourcebsp.Plane((-1.0, 0.0, 0.0), -1.0),
+            sourcebsp.Plane((0.0, 1.0, 0.0), 10.0),
+            sourcebsp.Plane((0.0, -1.0, 0.0), -2.0),
+            sourcebsp.Plane((0.0, 0.0, 1.0), 11.0),
+            sourcebsp.Plane((0.0, 0.0, -1.0), -3.0),
+        ]
+        bsp = empty_bsp(
+            planes=planes,
+            brushes=[sourcebsp.Brush(0, 6, sourcebsp.CONTENTS_WATER)],
+            brushsides=[sourcebsp.BrushSide(index, 0, False) for index in range(6)],
+            model_brushes=[(0,)],
+        )
+
+        volumes = bsp.playable_water_volumes()
+
+        self.assertEqual(
+            volumes,
+            [sourcebsp.MaterialVolume((1.0, 2.0, 3.0), (9.0, 10.0, 11.0))],
+        )
+        self.assertEqual(
+            sourcebsp._material_selection(volumes[0], 0.25, (100.0, 200.0, 300.0), 8),
+            ((96, 200, 296), (1, 1, 1), 8),
+        )
+
+    def test_excludes_source_warp_surface_from_render_mesh(self):
+        bsp = empty_bsp(
+            vertices=[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+            edges=[(0, 1), (1, 2), (2, 0)],
+            surfedges=[0, 1, 2],
+            faces=[sourcebsp.Face(0, 0, 3, 0, -1)],
+            texinfo=[
+                sourcebsp.TexInfo(
+                    (1.0, 0.0, 0.0, 0.0),
+                    (0.0, 1.0, 0.0, 0.0),
+                    sourcebsp.SURF_WARP,
+                    0,
+                )
+            ],
+            texdata=[sourcebsp.TexData("LIQUIDS/TEST_WATER", 64, 64)],
+            models=[sourcebsp.BspModel((0.0,) * 3, (1.0,) * 3, (0.0,) * 3, 0, 0, 1)],
+        )
+        self.assertEqual(len(bsp.triangles()), 1)
+        self.assertEqual(bsp.playable_triangles(), [])
+
+    def test_rejects_non_power_of_two_material_grid(self):
+        volume = sourcebsp.MaterialVolume((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
+        with self.assertRaisesRegex(sourcebsp.SourceBspError, "power of two"):
+            sourcebsp._material_selection(volume, 1.0, (0.0, 0.0, 0.0), 3)
+
+    def test_recovers_prop_models_for_incremental_reconversion(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "de_lake.cfg"
+            config.write_text(
+                '\n'.join(
+                    (
+                        'mapmodel "csgopen/imported/de_lake"',
+                        'mapmodel "csgopen/imported/de_lake/collision/tile_0_0"',
+                        'mapmodel "csgopen/imported/de_lake/props/tile_1_2_0"',
+                        'mapmodel "csgopen/imported/de_lake/prop_collision/tile_1_2_0"',
+                    )
+                ),
+                encoding="utf-8",
+            )
+            manifest = sourcebsp._prop_manifest_from_map_config(config, "de_lake")
+        self.assertEqual(
+            manifest["models"],
+            [
+                "csgopen/imported/de_lake/props/tile_1_2_0",
+                "csgopen/imported/de_lake/prop_collision/tile_1_2_0",
+            ],
+        )
 
     def test_positioned_entity_clears_editor_selection(self):
         commands = []

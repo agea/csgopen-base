@@ -87,6 +87,8 @@ namespace http
     VAR(0, httpserverport, 1, HTTP_LISTEN, VAR_MAX);
     SVAR(0, httpserverip, "");
 
+    int getserverport() { return httpserver && socket != ENET_SOCKET_NULL ? httpserverport : 0; }
+
     httpcmd *findcommand(const char *name)
     {
         loopv(cmds) if(!strcmp(cmds[i].name, name)) return &cmds[i];
@@ -266,6 +268,16 @@ namespace http
     bool processclientdata(httpclient *c)
     {
         if(c->state != HTTP_S_DATA) return false;
+        if(c->download)
+        {
+            if(c->inputpos > c->downloadlimit - c->received ||
+                c->download->write(c->input, c->inputpos) != c->inputpos) return false;
+            c->downloadcrc = crc32(c->downloadcrc, (const Bytef *)c->input, c->inputpos);
+            c->received += c->inputpos;
+            c->inputpos = 0;
+            if(c->received == c->conlength) c->state = HTTP_S_DONE;
+            return true;
+        }
         if(c->inputpos >= c->conlength) c->state = HTTP_S_DONE;
         return true;
     }
@@ -273,7 +285,7 @@ namespace http
     bool processclient(httpclient *c)
     {
         if(c->inputpos < 0) return false;
-        if(processclientdata(c)) return true;
+        if(c->state == HTTP_S_DATA) return processclientdata(c);
         char *p = c->input;
         for(char *end;; p = end)
         {
@@ -310,12 +322,14 @@ namespace http
                     if(!strlen(p))
                     {
                         const char *cont = c->inhdrs.get("Content-Type");
-                        if(!cont && !*cont) return false;
+                        if(!cont || !*cont) return false;
                         if(!strcasecmp(cont, "application/x-www-form-urlencoded")) c->contype = HTTP_C_URLENC;
                         else if(!strcasecmp(cont, "application/json")) c->contype = HTTP_C_JSON;
                         else c->contype = HTTP_C_DATA;
                         cont = c->inhdrs.get("Content-Length");
                         if(cont && *cont) c->conlength = atoi(cont);
+                        if(c->download && (!cont || c->conlength != c->downloadlimit ||
+                            c->inhdrs.get("Transfer-Encoding"))) return false;
                         c->state = HTTP_S_DATA;
                         break;
                     }
@@ -342,7 +356,7 @@ namespace http
         memmove(c->input, p, c->inputpos);
         if(c->inputpos < (int)sizeof(c->input))
         {
-            processclientdata(c);
+            if(c->state == HTTP_S_DATA) return processclientdata(c);
             return true;
         }
         return false;
@@ -353,6 +367,7 @@ namespace http
         if(n < 0 || n >= clients.length()) return;
         httpclient *c = clients[n];
         if(state >= 0) c->state = state;
+        DELETEP(c->download);
         if(c->inputpos < 0 || c->inputpos > (int)sizeof(c->input)) c->inputpos = 0;
         c->input[c->inputpos] = '\0';
         if(c->callback) c->callback(c);
@@ -363,6 +378,28 @@ namespace http
     }
 
     static int retrieveid = 0;
+    void cancel(httpclient *c)
+    {
+        loopv(clients) if(clients[i] == c)
+        {
+            c->callback = NULL;
+            purgeclient(i, HTTP_S_FAILED);
+            return;
+        }
+    }
+
+    httpclient *retrievefile(const char *serv, int port, const char *path, const char *file, int size, httpcb callback)
+    {
+        if(size <= 0) return NULL;
+        stream *f = openrawfile(file, "wb");
+        if(!f) return NULL;
+        httpclient *c = retrieve(serv, port, HTTP_T_GET, path, callback);
+        if(!c) { delete f; return NULL; }
+        c->download = f;
+        c->downloadlimit = size;
+        c->outhdrs.add("Host", serv);
+        return c;
+    }
     httpclient *retrieve(const char *serv, int port, int type, const char *path, httpcb callback, const char *data, int uid)
     {
         if(!serv || !*serv || !port || type <= HTTP_T_ERROR || type >= HTTP_T_MAX || !path || !*path || !callback) return NULL;
@@ -439,6 +476,18 @@ namespace http
         loopv(reqs)
         {
             httpreq *r = reqs[i];
+            if(r->responsebody && r->output.empty())
+            {
+                char buf[65536];
+                int len = r->responsebody->read(buf, sizeof(buf));
+                if(len > 0) r->output.put(buf, len);
+                else DELETEP(r->responsebody);
+            }
+            if(r->state == HTTP_S_DONE && r->output.empty() && !r->responsebody)
+            {
+                purgereq(i--);
+                continue;
+            }
             if(r->outputpos < r->output.length()) ENET_SOCKETSET_ADD(writeset, r->socket);
             else ENET_SOCKETSET_ADD(readset, r->socket);
             maxsock = max(maxsock, r->socket);
@@ -459,6 +508,7 @@ namespace http
             }
             if(reqsocket != ENET_SOCKET_NULL)
             {
+                enet_socket_set_option(reqsocket, ENET_SOCKOPT_NONBLOCK, 1);
                 httpreq *c = new httpreq;
                 c->address = address;
                 c->socket = reqsocket;
@@ -480,12 +530,13 @@ namespace http
                 int res = enet_socket_send(r->socket, NULL, &buf, 1);
                 if(res >= 0)
                 {
+                    if(res) r->lastactivity = totalmillis;
                     r->outputpos += res;
                     if(r->outputpos >= r->output.length())
                     {
                         r->output.setsize(0);
                         r->outputpos = 0;
-                        if(r->state == HTTP_S_DONE) { purgereq(i--); continue; }
+                        if(r->state == HTTP_S_DONE && !r->responsebody) { purgereq(i--); continue; }
                     }
                 }
                 else { purgereq(i--); continue; }
@@ -498,6 +549,7 @@ namespace http
                 int res = enet_socket_receive(r->socket, NULL, &buf, 1);
                 if(res > 0)
                 {
+                    r->lastactivity = totalmillis;
                     r->inputpos += res;
                     r->input[min(r->inputpos, (int)sizeof(r->input)-1)] = '\0';
                     if(!processreq(r)) { purgereq(i--); continue; }
@@ -551,6 +603,7 @@ namespace http
                 int res = enet_socket_send(c->socket, NULL, &buf, 1);
                 if(res >= 0)
                 {
+                    if(res) c->lastactivity = totalmillis;
                     c->outputpos += res;
                     if(c->outputpos >= c->output.length())
                     {
@@ -562,17 +615,26 @@ namespace http
             }
             if(ENET_SOCKETSET_CHECK(readset, c->socket))
             {
-                ENetBuffer buf;
-                buf.data = &c->input[c->inputpos];
-                buf.dataLength = sizeof(c->input)-c->inputpos;
-                int res = enet_socket_receive(c->socket, NULL, &buf, 1);
-                if(res > 0)
+                bool failed = false;
+                // Drain a bounded number of chunks per frame without blocking gameplay.
+                loopk(c->download ? 32 : 1)
                 {
-                    c->inputpos += res;
-                    c->input[min(c->inputpos, (int)sizeof(c->input)-1)] = '\0';
-                    if(!processclient(c)) { purgeclient(i--, HTTP_S_FAILED); continue; }
+                    ENetBuffer buf;
+                    buf.data = &c->input[c->inputpos];
+                    buf.dataLength = sizeof(c->input)-c->inputpos-1;
+                    int res = enet_socket_receive(c->socket, NULL, &buf, 1);
+                    if(res > 0)
+                    {
+                        c->lastactivity = totalmillis;
+                        c->inputpos += res;
+                        c->input[c->inputpos] = '\0';
+                        if(!processclient(c)) { failed = true; break; }
+                        if(c->state == HTTP_S_DONE) break;
+                    }
+                    else if(res < 0) { failed = true; break; }
+                    else break;
                 }
-                else { purgeclient(i--, HTTP_S_FAILED); continue; }
+                if(failed) { purgeclient(i--, HTTP_S_FAILED); continue; }
             }
             if(c->state == HTTP_S_DONE)
             {

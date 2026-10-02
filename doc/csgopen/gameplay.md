@@ -1,5 +1,14 @@
 # Regole CSGOpen TDM v0.1
 
+Dedicated-server match rotation is configured separately in
+`config/csgopen/server-maps.cfg`: the first map comes from `sv_mainmaps`,
+matches last 10 minutes without a score limit or overtime, results last
+10 seconds, and voting lasts up to 20 seconds. The server chooses a random
+map when nobody votes and normally excludes the most recent map. The
+native development server distributes complete converted-map ZIPs over
+loopback HTTP; the TDM client verifies and caches them before map loading.
+This does not change the movement, weapons, or original gameplay profile.
+
 Preset: `config/csgopen/tdm.cfg`. I nomi `sv_*` agiscono sull'autorità server;
 le corrispondenti variabili senza prefisso sono sincronizzate con i client.
 I valori sono un punto di partenza nelle unità di Red Eclipse, non valori CS:GO.

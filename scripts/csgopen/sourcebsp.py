@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Iterable, Sequence
 
-from q3bsp import BspError, SPAWN_CLEARANCE, _obj_position, _support_floor
+from q3bsp import BspError, SPAWN_CLEARANCE, _obj_position as _engine_obj_position, _support_floor
 
 
 VBSP_MAGIC = b"VBSP"
@@ -56,8 +56,10 @@ DISPVERT_SIZE = 20
 VPK_SIGNATURE = 0x55AA1234
 VPK_DIR_INDEX = 0x7FFF
 SURF_SKY = 0x0004
+SURF_WARP = 0x0008
 SURF_NODRAW = 0x0080
 CONTENTS_SOLID = 0x00000001
+CONTENTS_WATER = 0x00000020
 CONTENTS_PLAYERCLIP = 0x00010000
 SOURCE_TOOL_PREFIX = "tools/"
 TRIANGLES_PER_MESH = 100
@@ -68,6 +70,15 @@ OBJ_INDEX_LIMIT = 0xFFFF
 
 class SourceBspError(ValueError):
     pass
+
+
+def _target_position(position: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Reflect Source X so imported maps retain their expected left/right layout."""
+    return -position[0], position[1], position[2]
+
+
+def _obj_position(position: tuple[float, float, float]) -> tuple[float, float, float]:
+    return _engine_obj_position(_target_position(position))
 
 
 @dataclass(frozen=True)
@@ -169,6 +180,12 @@ class Triangle:
     material: str
     points: tuple[tuple[float, float, float], ...]
     uvs: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True)
+class MaterialVolume:
+    minimum: tuple[float, float, float]
+    maximum: tuple[float, float, float]
 
 
 @dataclass(frozen=True)
@@ -377,8 +394,9 @@ class SourceBsp:
                 continue
             origin = _float_tuple(entity["origin"], 3)
             angles = _float_tuple(entity.get("angles", "0 0 0"), 3)
-            # Source yaw 0 faces +X.  Eclipse yaw 0 faces +Y.
-            output.append(Spawn(classname, teams[classname], origin, (angles[1] - 90.0) % 360.0))
+            # Source yaw 0 faces +X. Eclipse yaw 0 faces +Y; reflecting X also
+            # reverses yaw so the authored view remains aligned with the map.
+            output.append(Spawn(classname, teams[classname], origin, (90.0 - angles[1]) % 360.0))
         return output
 
     def world_bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
@@ -404,10 +422,18 @@ class SourceBsp:
     def playable_triangles(self, displacement_lod: int = 2) -> list[Triangle]:
         """Return visible world surfaces, excluding tools and the 3D skybox."""
         triangles = self.triangles(displacement_lod)
+        liquid_materials = {
+            self.texdata[info.texdata].name
+            for info in self.texinfo
+            if info.flags & SURF_WARP and 0 <= info.texdata < len(self.texdata)
+        }
         bounds = self.playable_bounds()
         output = []
         for triangle in triangles:
-            if triangle.material.lower().startswith(SOURCE_TOOL_PREFIX):
+            if (
+                triangle.material.lower().startswith(SOURCE_TOOL_PREFIX)
+                or triangle.material in liquid_materials
+            ):
                 continue
             if bounds:
                 minimum, maximum = bounds
@@ -456,6 +482,31 @@ class SourceBsp:
                 for axis in range(3)
             ):
                 output.append(triangle)
+        return output
+
+    def playable_water_volumes(self) -> list[MaterialVolume]:
+        """Return authored world-water brush bounds, excluding the 3D skybox."""
+        bounds = self.playable_bounds()
+        output = []
+        for brush_index in self.model_brushes[0]:
+            brush = self.brushes[brush_index]
+            if not brush.contents & CONTENTS_WATER:
+                continue
+            triangles = _brush_triangles(brush, self.brushsides, self.planes)
+            points = [point for triangle in triangles for point in triangle]
+            if not points:
+                continue
+            axes = list(zip(*points))
+            minimum = tuple(min(axis) for axis in axes)
+            maximum = tuple(max(axis) for axis in axes)
+            center = tuple((minimum[axis] + maximum[axis]) / 2.0 for axis in range(3))
+            if bounds and any(
+                center[axis] < bounds[0][axis] - 1.0
+                or center[axis] > bounds[1][axis] + 1.0
+                for axis in range(3)
+            ):
+                continue
+            output.append(MaterialVolume(minimum, maximum))
         return output
 
     def neutral_backing_triangles(self) -> list[Triangle]:
@@ -605,6 +656,7 @@ class SourceBsp:
                 "displacements": len(self.dispinfo),
                 "static_props": len(self.static_props),
                 "static_prop_models": len({prop.model for prop in self.static_props}),
+                "water_brushes": len(self.playable_water_volumes()),
                 "triangles": len(triangles),
                 "materials": len({triangle.material for triangle in triangles}),
             },
@@ -627,6 +679,7 @@ def write_eclipse_stage(
     triangles = bsp.playable_triangles(displacement_lod)
     collision_source = bsp.playable_collision_triangles(displacement_lod)
     neutral_backing = bsp.neutral_backing_triangles() if include_neutral_backing else []
+    water_volumes = bsp.playable_water_volumes()
     # Eclipse combines all OBJ meshes into one ushort-indexed VBO.  Chunking
     # protects each BIH mesh, but it cannot prevent a model-wide index wrap.
     # This exporter deliberately duplicates render vertices, so the bound is
@@ -736,15 +789,17 @@ def write_eclipse_stage(
     (maps_dir / f"{stem}.cfg").write_text("\n".join(map_config) + "\n", encoding="utf-8")
 
     minimum, maximum = bsp.bounds(triangles)
+    target_minimum = _target_position((maximum[0], minimum[1], minimum[2]))
+    target_maximum = _target_position((minimum[0], maximum[1], maximum[2]))
     extents = [(maximum[index] - minimum[index]) * scale for index in range(3)]
     margin = 64.0
     required = max(value + 2 * margin for value in extents)
     world_scale = max(10, min(16, math.ceil(math.log2(max(required, 1.0)))))
     world_size = 1 << world_scale
     offset = (
-        margin - minimum[0] * scale,
-        margin - minimum[1] * scale,
-        world_size / 2 + margin - minimum[2] * scale,
+        margin - target_minimum[0] * scale,
+        margin - target_minimum[1] * scale,
+        world_size / 2 + margin - target_minimum[2] * scale,
     )
     commands = [
         "sourceimport_done = 0",
@@ -757,6 +812,14 @@ def write_eclipse_stage(
         "        mapmodelreset 0",
         f'        exec "maps/{stem}.cfg"',
     ]
+    water_selections = [
+        _material_selection(volume, scale, offset, 8) for volume in water_volumes
+    ]
+    for origin, size, grid in water_selections:
+        commands.append(
+            "        editmatbox water %d %d %d %d %d %d %d"
+            % (*origin, *size, grid)
+        )
     _append_positioned_entity(commands, "newent mapmodel 0 0 0 0 100 100", offset)
     for model_index in range(1, len(collision_models) + 1):
         _append_positioned_entity(
@@ -779,9 +842,10 @@ def write_eclipse_stage(
         spawn_entries.append((spawn, floor_z))
     for spawn_id, (spawn, floor_z) in enumerate(spawn_entries):
         team = {"neutral": 0, "alpha": 1, "omega": 2}[spawn.team]
+        target = _target_position(spawn.origin)
         position = (
-            spawn.origin[0] * scale + offset[0],
-            spawn.origin[1] * scale + offset[1],
+            target[0] * scale + offset[0],
+            target[1] * scale + offset[1],
             (floor_z if floor_z is not None else spawn.origin[2]) * scale
             + offset[2]
             + SPAWN_CLEARANCE,
@@ -818,6 +882,11 @@ def write_eclipse_stage(
         "render_mesh": render_stats,
         "collision_mesh": collision_stats,
         "textures": texture_stats,
+        "water": {
+            "brushes": len(water_volumes),
+            "selections": len(water_selections),
+            "grid": 8,
+        },
         "neutral_backing": {"enabled": include_neutral_backing, **fallback_stats},
         "static_props": (prop_manifest or {}).get("counts"),
         "spawns_written": len(spawn_entries),
@@ -829,6 +898,33 @@ def write_eclipse_stage(
         encoding="utf-8",
     )
     return conversion
+
+
+def _material_selection(
+    volume: MaterialVolume,
+    scale: float,
+    offset: tuple[float, float, float],
+    grid: int,
+) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+    """Convert reflected Source bounds to one grid-aligned Eclipse selection."""
+    if grid <= 0 or grid & (grid - 1):
+        raise SourceBspError("material grid must be a positive power of two")
+    target_minimum = _target_position(
+        (volume.maximum[0], volume.minimum[1], volume.minimum[2])
+    )
+    target_maximum = _target_position(
+        (volume.minimum[0], volume.maximum[1], volume.maximum[2])
+    )
+    world_minimum = tuple(
+        target_minimum[axis] * scale + offset[axis] for axis in range(3)
+    )
+    world_maximum = tuple(
+        target_maximum[axis] * scale + offset[axis] for axis in range(3)
+    )
+    origin = tuple(math.floor(value / grid) * grid for value in world_minimum)
+    end = tuple(math.ceil(value / grid) * grid for value in world_maximum)
+    size = tuple(max(1, (end[axis] - origin[axis]) // grid) for axis in range(3))
+    return origin, size, grid
 
 
 def _append_positioned_entity(
@@ -1209,7 +1305,7 @@ def _records(data: bytes, fmt: str, label: str) -> Iterable[tuple]:
 
 
 def _parse_static_props(data: bytes, game_lump: bytes, source_name: str) -> list[StaticProp]:
-    """Read CS:GO's version-11 ``sprp``/``prps`` game lump."""
+    """Read CS:GO's version-10/11 ``sprp``/``prps`` game lump."""
     if not game_lump:
         return []
     if len(game_lump) < 4:
@@ -1234,7 +1330,7 @@ def _parse_static_props(data: bytes, game_lump: bytes, source_name: str) -> list
         break
     if prop_lump is None:
         return []
-    if version != 11:
+    if version not in (10, 11):
         raise SourceBspError(f"{source_name}: unsupported static-prop version {version}")
 
     cursor = 0
@@ -1263,9 +1359,9 @@ def _parse_static_props(data: bytes, game_lump: bytes, source_name: str) -> list
         raise SourceBspError(f"{source_name}: truncated static-prop leaf list")
     cursor += leaf_count * 2
     prop_count = take_count("prop count")
-    record_size = 80
+    record_size = 76 if version == 10 else 80
     if cursor + prop_count * record_size != len(prop_lump):
-        raise SourceBspError(f"{source_name}: malformed version-11 static-prop records")
+        raise SourceBspError(f"{source_name}: malformed version-{version} static-prop records")
 
     output = []
     for index in range(prop_count):
@@ -1276,7 +1372,7 @@ def _parse_static_props(data: bytes, game_lump: bytes, source_name: str) -> list
             "<3H2B", prop_lump, offset + 24
         )
         skin = struct.unpack_from("<i", prop_lump, offset + 32)[0]
-        scale = struct.unpack_from("<f", prop_lump, offset + 76)[0]
+        scale = struct.unpack_from("<f", prop_lump, offset + 76)[0] if version == 11 else 1.0
         if not 0 <= model_index < len(models):
             raise SourceBspError(f"{source_name}: static prop references missing model {model_index}")
         output.append(StaticProp(models[model_index], origin, angles, solid, flags, skin, scale))
@@ -1328,6 +1424,20 @@ def _material_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_") or "missing"
 
 
+def _prop_manifest_from_map_config(path: Path, stem: str) -> dict[str, object]:
+    """Recover generated prop model paths for an incremental reconversion."""
+    text = path.read_text(encoding="utf-8")
+    prefix = f"csgopen/imported/{stem}/"
+    models = [
+        model
+        for model in re.findall(r'^\s*mapmodel\s+"([^"]+)"', text, re.MULTILINE)
+        if model.startswith(prefix + "props/") or model.startswith(prefix + "prop_collision/")
+    ]
+    if not models:
+        raise SourceBspError(f"{path}: no generated prop models found for {stem}")
+    return {"models": models, "counts": {"models": len(models), "reused": True}}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="Source 1 VBSP map")
@@ -1336,6 +1446,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--scale", type=float, default=0.25)
     parser.add_argument("--displacement-lod", type=int, default=2, help="number of power-of-two LOD reductions")
     parser.add_argument("--props-manifest", type=Path, help="static-prop tile manifest emitted by sourceprops_blender.py")
+    parser.add_argument(
+        "--reuse-props-config",
+        type=Path,
+        help="existing generated map CFG whose prop model paths should be reused",
+    )
     parser.add_argument(
         "--neutral-backing",
         action="store_true",
@@ -1346,9 +1461,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         bsp = SourceBsp.read(args.source.read_bytes(), args.source.name)
         triangles = bsp.playable_triangles(args.displacement_lod)
         manifest = bsp.manifest(triangles, args.displacement_lod)
+        if args.props_manifest and args.reuse_props_config:
+            raise SourceBspError("use either --props-manifest or --reuse-props-config, not both")
         prop_manifest = None
         if args.props_manifest:
             prop_manifest = json.loads(args.props_manifest.read_text(encoding="utf-8"))
+        elif args.reuse_props_config:
+            prop_manifest = _prop_manifest_from_map_config(args.reuse_props_config, args.source.stem)
         if args.output:
             manifest["eclipse"] = write_eclipse_stage(
                 args.source,

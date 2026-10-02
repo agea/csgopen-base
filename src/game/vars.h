@@ -193,6 +193,8 @@ GSVAR(0, PRIV_ADMINISTRATOR, allowmaps, "");
 GSVAR(0, PRIV_ADMINISTRATOR, wipmaps, "");
 
 GSVAR(0, PRIV_ADMINISTRATOR, mainmaps, "");
+GVAR(0, PRIV_ADMINISTRATOR, mappackages, 0, 0, 1);
+GSVAR(0, PRIV_ADMINISTRATOR, mappackagedir, "data/csgopen");
 GSVAR(0, PRIV_ADMINISTRATOR, capturemaps, "");
 GSVAR(0, PRIV_ADMINISTRATOR, defendmaps, "");
 GSVAR(0, PRIV_ADMINISTRATOR, kingmaps, "");

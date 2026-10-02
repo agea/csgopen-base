@@ -17,7 +17,7 @@ fail() { echo "Eclipse Recoil Source BSP converter: $*" >&2; exit 1; }
 [[ -n "$SOURCE" ]] || fail "usage: $0 /path/to/map.bsp [pak01_dir.vpk] [scale] [displacement-lod] [prop-triangle-budget]"
 [[ -f "$SOURCE" ]] || fail "source not found: $SOURCE"
 [[ "$SOURCE" == *.bsp ]] || fail "source must be a .bsp file"
-[[ -x "$ROOT/src/redeclipse_native" ]] || fail "build the client first: scripts/csgopen/dev.sh build"
+[[ -x "$ROOT/src/eclipse-recoil_native" ]] || fail "build the client first: scripts/csgopen/dev.sh build"
 
 if [[ -z "$VPK" ]]; then
     CANDIDATE=$(cd "$(dirname "$SOURCE")/.." && pwd)/pak01_dir.vpk
@@ -54,7 +54,7 @@ CONVERT+=("$SOURCE" "$STAGE")
 "${CONVERT[@]}"
 
 cd "$ROOT"
-"$ROOT/src/redeclipse_native" \
+"$ROOT/src/eclipse-recoil_native" \
     "-h$PROFILE" \
     "-p$PACKAGE" \
     "-g$LOG" \
@@ -73,4 +73,4 @@ echo "Generated MPZ: $PACKAGE/maps/$MAP.mpz"
 echo "Log: $LOG"
 if [[ -n "$PROP_MANIFEST" ]]; then echo "Static-prop log: $PROP_LOG"; fi
 echo "Play with:"
-echo "  $ROOT/src/redeclipse_native -h$PROFILE -p$PACKAGE -bconfig/csgopen/branding.cfg -sm -ss0 -dw1280 -dh720 -df0 '-xexec \"play.cfg\"'"
+echo "  $ROOT/src/eclipse-recoil_native -h$PROFILE -p$PACKAGE -bconfig/csgopen/branding.cfg -sm -ss0 -dw1280 -dh720 -df0 '-xexec \"play.cfg\"'"

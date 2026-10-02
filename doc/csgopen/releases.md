@@ -101,7 +101,7 @@ After a native client build with dependencies installed:
 
 ```sh
 python3 scripts/release/package.py --platform macos --arch arm64 \
-  --binary src/redeclipse_native --commit "$(git rev-parse HEAD)" --build 1
+  --binary src/eclipse-recoil_native --commit "$(git rev-parse HEAD)" --build 1
 ```
 
 For Linux use `--platform linux`, the host's architecture and

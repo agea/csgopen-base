@@ -11,6 +11,10 @@ extern char *servermaster, *serverip;
 #define servercheck(x) (servertype >= 3 && (x))
 #endif
 extern ENetAddress masteraddress;
+extern const ENetAddress *connectedpeer();
+#ifndef STANDALONE
+extern void reloadmappackageassets(const char *map);
+#endif
 extern void fatal(const char *s, ...) PRINTFARGS(1, 2);
 extern void conoutf(int color, const char *s, ...) PRINTFARGS(2, 3);
 extern void eventf(int color, const char *s, ...) PRINTFARGS(2, 3);

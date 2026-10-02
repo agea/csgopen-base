@@ -21,17 +21,17 @@
 #define VERSION_HLP(x,y,z,r) #x#r#y#r#z
 #define VERSION_STR(x,y,z,r) VERSION_HLP(x,y,z,r)
 #define VERSION_STRING VERSION_STR(VERSION_MAJOR,VERSION_MINOR,VERSION_PATCH,.)
-#define VERSION_NAME "Red Eclipse"
-#define VERSION_FNAME "Red Eclipse"
-#define VERSION_UNAME "redeclipse"
-#define VERSION_VNAME "REDECLIPSE"
-#define VERSION_RELEASE "Big Bang Beta"
-#define VERSION_URL "www.redeclipse.net"
-#define VERSION_COPY "2009-2025"
+#define VERSION_NAME "Eclipse Recoil"
+#define VERSION_FNAME "Eclipse Recoil"
+#define VERSION_UNAME "eclipse-recoil"
+#define VERSION_VNAME "ECLIPSE_RECOIL"
+#define VERSION_RELEASE "Development"
+#define VERSION_URL "github.com/agea/eclipse-recoil"
+#define VERSION_COPY "2026"
 #define VERSION_DESC "An arena shooter for the modern era"
-#define VERSION_STEAM_APPID 967460
-#define VERSION_STEAM_DEPOT 967461
-#define VERSION_DISCORD "506825464946360321"
+#define VERSION_STEAM_APPID 0
+#define VERSION_STEAM_DEPOT 0
+#define VERSION_DISCORD ""
 
 #ifndef VERSION_BUILD
 #define VERSION_BUILD 0

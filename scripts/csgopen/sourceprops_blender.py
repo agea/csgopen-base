@@ -117,6 +117,67 @@ class TileWriter:
         part.add(triangle)
 
 
+@dataclass
+class CollisionObjPart:
+    directory: Path
+    relative: str
+    pending: list[object] = field(default_factory=list)
+    triangles: int = 0
+    sealed: bool = False
+
+    def add(self, triangle) -> None:
+        self.pending.append(triangle)
+        self.triangles += 1
+
+    def seal(self, sourcebsp, scale: float) -> None:
+        if self.sealed:
+            return
+        with (self.directory / "collision.obj").open("wb") as output:
+            sourcebsp._write_collision_obj(output, self.pending, "solid static props")
+        (self.directory / "obj.cfg").write_text(
+            "\n".join(
+                (
+                    'objload "collision.obj"',
+                    'objblend "*" 0',
+                    "mdlcullface 0",
+                    f"mdlscale {scale * 100:.9g}",
+                    "mdltricollide 1",
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.pending.clear()
+        self.sealed = True
+
+
+class CollisionTileWriter:
+    def __init__(self, root: Path, model_root: str, sourcebsp, scale: float):
+        self.root = root
+        self.model_root = model_root
+        self.sourcebsp = sourcebsp
+        self.scale = scale
+        self.parts: list[CollisionObjPart] = []
+        self.active: dict[tuple[int, int], CollisionObjPart] = {}
+        self.part_counts: Counter[tuple[int, int]] = Counter()
+
+    def add(self, tile: tuple[int, int], triangle) -> None:
+        part = self.active.get(tile)
+        if part is None or part.triangles >= MAX_TRIANGLES_PER_MODEL:
+            if part is not None:
+                part.seal(self.sourcebsp, self.scale)
+            index = self.part_counts[tile]
+            self.part_counts[tile] += 1
+            suffix = "_".join(str(value).replace("-", "n") for value in tile)
+            name = f"tile_{suffix}_{index}"
+            directory = self.root / name
+            directory.mkdir(parents=True, exist_ok=True)
+            part = CollisionObjPart(directory, f"{self.model_root}/{name}")
+            self.parts.append(part)
+            self.active[tile] = part
+        part.add(triangle)
+
+
 def _source_matrix(angles: tuple[float, float, float]) -> Matrix:
     pitch, yaw, roll = (math.radians(value) for value in angles)
     sp, cp = math.sin(pitch), math.cos(pitch)
@@ -307,8 +368,16 @@ def main() -> int:
         output_root = args.stage / "data" / model_root
         output_root.mkdir(parents=True, exist_ok=True)
         writer = TileWriter(output_root, model_root, sourcebsp)
+        collision_root = f"csgopen/imported/{stem}/prop_collision"
+        collision_writer = CollisionTileWriter(
+            args.stage / "data" / collision_root,
+            collision_root,
+            sourcebsp,
+            args.scale,
+        )
         geometry_cache = {}
         written_props = 0
+        solid_props = 0
         for number, prop in enumerate(props, 1):
             item = imported.get(prop.model.lower())
             if item is None:
@@ -326,13 +395,20 @@ def main() -> int:
             tile = (math.floor(prop.origin[0] / PROP_TILE_SIZE), math.floor(prop.origin[1] / PROP_TILE_SIZE))
             for triangle in geometry.triangles:
                 points = _transform(triangle, prop, transform)
-                writer.add(tile, sourcebsp.Triangle(triangle.material, points, triangle.uvs), triangle.material)
+                transformed = sourcebsp.Triangle(triangle.material, points, triangle.uvs)
+                writer.add(tile, transformed, triangle.material)
+                if prop.solid:
+                    collision_writer.add(tile, transformed)
+            if prop.solid:
+                solid_props += 1
             written_props += 1
             if number % 250 == 0:
                 print(f"[csgopen] instanced {number}/{len(props)} static props", flush=True)
 
         for part in writer.parts:
             part.seal(sourcebsp)
+        for part in collision_writer.parts:
+            part.seal(sourcebsp, args.scale)
         materials = {material for part in writer.parts for material in part.bindings.values()}
         texture_dir = output_root / "textures"
         texture_dir.mkdir(parents=True, exist_ok=True)
@@ -344,7 +420,8 @@ def main() -> int:
             part.close(sourcebsp, texture_names, args.scale)
 
     manifest = {
-        "models": [part.relative for part in writer.parts],
+        "models": [part.relative for part in writer.parts]
+        + [part.relative for part in collision_writer.parts],
         "counts": {
             "source_props": len(bsp.static_props),
             "playable_props": len(props),
@@ -358,6 +435,9 @@ def main() -> int:
             "triangles": sum(part.triangles for part in writer.parts),
             "vertices": sum(part.vertices for part in writer.parts),
             "tile_models": len(writer.parts),
+            "solid_props": solid_props,
+            "collision_triangles": sum(part.triangles * 2 for part in collision_writer.parts),
+            "collision_tile_models": len(collision_writer.parts),
             "simplification_ratio": ratio,
         },
         "textures": texture_stats,

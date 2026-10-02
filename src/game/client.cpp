@@ -7,6 +7,143 @@ namespace client
     string connectpass = "";
     hashtable<int, const char *>demonames;
 
+    VAR(IDF_PERSIST, mapautodownload, 0, 0, 1);
+    httpclient *packageget = NULL;
+    string packagemap = "", packagefile = "", packagetemp = "", verifiedpackage = "", pendingmap = "";
+    uint packagecrc = 0, verifiedcrc = 0;
+    int packagesize = 0, packageport = 0, pendingmode = 0, pendingmuts = 0, pendingcrc = 0, pendingvariant = 0, pendingclient = 0;
+    bool packagefailed = false;
+    ICOMMANDV(0, getmappackageprogress, packagefailed ? -2 : (packageget ? int(double(packageget->received)*100/packageget->downloadlimit) : -1));
+    ICOMMAND(0, getmappackagename, "", (), result(packageget ? packagemap : ""));
+
+    void changemapserv(char *name, int gamemode, int mutators, int crc, int variant, int clientnum);
+
+    void cancelpackage()
+    {
+        if(packageget)
+        {
+            http::cancel(packageget);
+            packageget = NULL;
+            remove(findfile(packagetemp, "rb"));
+        }
+    }
+
+    void receivepackageoffer(const char *offer)
+    {
+        string name, map;
+        uint crc;
+        int size, port;
+        char extra;
+        if(sscanf(offer, "%255s %u %d %d %c", name, &crc, &size, &port, &extra) != 4 ||
+            !mappackagename(name, map) || size <= 0 || size > MAP_PACKAGE_LIMIT || port <= 0 || port > 65535)
+        {
+            cancelpackage();
+            packagemap[0] = 0;
+            packagefailed = false;
+            return;
+        }
+        if(strcmp(packagemap, map) || packagecrc != crc || packagesize != size || packageport != port)
+        {
+            cancelpackage();
+            packagefailed = false;
+        }
+        copystring(packagemap, map);
+        packagecrc = crc;
+        packagesize = size;
+        packageport = port;
+    }
+
+    void packagecomplete(httpclient *c)
+    {
+        packageget = NULL;
+        bool valid = c->state == HTTP_S_DONE && c->received == packagesize && c->downloadcrc == packagecrc;
+        if(valid)
+        {
+            valid = addmapzip(packagetemp, packagemap);
+            if(valid) removezip(packagetemp);
+        }
+        if(valid)
+        {
+            string source, dest;
+            copystring(source, findfile(packagetemp, "rb"));
+            copystring(dest, findfile(packagefile, "wb"));
+            remove(dest); // Replace a corrupt entry with the already verified download.
+            valid = rename(source, dest) == 0 && addmapzip(packagefile, packagemap);
+        }
+        if(!valid)
+        {
+            remove(findfile(packagetemp, "rb"));
+            packagefailed = true;
+            gettingmap = 0;
+            conoutf(colourred, "Map package download failed: %s. Reconnect to retry.", packagemap);
+            return;
+        }
+        copystring(verifiedpackage, packagemap);
+        verifiedcrc = packagecrc;
+        reloadmappackageassets(packagemap);
+        conoutf(colourgreen, "Map package ready: %s (%d bytes)", packagemap, packagesize);
+        changemapserv(pendingmap, pendingmode, pendingmuts, pendingcrc, pendingvariant, pendingclient);
+    }
+
+    bool preparepackage(char *name, int mode, int muts, int crc, int variant, int clientnum)
+    {
+        string map;
+        if(!remote || !mappackagename(name, map) || strcmp(map, packagemap))
+        {
+            cancelpackage();
+            return false;
+        }
+        if(!strcmp(verifiedpackage, map) && verifiedcrc == packagecrc) return false;
+        if(packageget && !strcmp(pendingmap, name)) return true;
+        cancelpackage();
+        formatstring(packagefile, "map-packages/%s_%u.zip", map, packagecrc);
+        defformatstring(localfile, "data/csgopen/%s.zip", map);
+        const char *candidates[] = { packagefile, localfile };
+        loopi(2)
+        {
+            stream *f = openrawfile(candidates[i], "rb");
+            if(!f) continue;
+            bool valid = f->size() == packagesize && mappackagecrc(f) == packagecrc;
+            delete f;
+            if(valid && addmapzip(candidates[i], map))
+            {
+                copystring(verifiedpackage, map);
+                verifiedcrc = packagecrc;
+                reloadmappackageassets(map);
+                conoutf(colourwhite, "Using cached map package: %s", map);
+                return false;
+            }
+        }
+        game::gamestate = G_S_WAITING;
+        loadedmap = sendcrcinfo = sendgameinfo = false;
+        needsmap = totalmillis ? totalmillis : 1;
+        if(packagefailed) return true;
+        if(!mapautodownload)
+        {
+            packagefailed = true;
+            conoutf(colourred, "This map requires a package. Enable mapautodownload and reconnect.");
+            return true;
+        }
+        const ENetAddress *peer = connectedpeer();
+        string host;
+        if(!peer || enet_address_get_host_ip(peer, host, sizeof(host)) < 0) return true;
+        copystring(pendingmap, name);
+        pendingmode = mode; pendingmuts = muts; pendingcrc = crc; pendingvariant = variant; pendingclient = clientnum;
+        formatstring(packagetemp, "map-packages/%s_%u.partial.zip", map, packagecrc);
+        defformatstring(url, "/map-package?name=%s&crc=%u", map, packagecrc);
+        gettingmap = totalmillis ? totalmillis : 1;
+        packageget = http::retrievefile(host, packageport, url, packagetemp, packagesize, packagecomplete);
+        if(!packageget)
+        {
+            remove(findfile(packagetemp, "rb"));
+            packagefailed = true;
+            gettingmap = 0;
+            conoutf(colourred, "Unable to download map package: %s", map);
+        }
+        else conoutf(colouryellow, "Downloading map package: %s (%.1f MB)", map, packagesize/1048576.0f);
+        return true;
+    }
+
     VAR(0, debugmessages, 0, 0, 1);
     ICOMMANDV(0, getready, isready ? 1 : 0);
     ICOMMANDV(0, getmapstate, mapsaving ? 2 : (maploading || loadedmap ? 1 : 0));
@@ -1113,6 +1250,8 @@ namespace client
 
     void gamedisconnect(int clean)
     {
+        cancelpackage();
+        packagemap[0] = 0;
         if(editmode) toggleedit(true);
         remote = isready = sendplayerinfo = sendgameinfo = sendcrcinfo = loadedmap = false;
         gettingmap = needsmap = sessionid = sessionver = lastplayerinfo = mastermode = triggerid = 0;
@@ -1389,6 +1528,7 @@ namespace client
 
     void changemapserv(char *name, int gamemode, int mutators, int crc, int variant, int clientnum)
     {
+        if(preparepackage(name, gamemode, mutators, crc, variant, clientnum)) return;
         game::gamestate = G_S_WAITING;
         game::gamemode = gamemode;
         game::mutators = mutators;
@@ -2012,7 +2152,7 @@ namespace client
                 else if(m_bomber(game::gamemode)) bomber::sendaffinity(p);
                 sendgameinfo = false;
             }
-            if(gs_playing(game::gamestate) && needsmap && !gettingmap && totalmillis-needsmap >= 30000)
+            if(gs_playing(game::gamestate) && needsmap && !gettingmap && !packagefailed && totalmillis-needsmap >= 30000)
             {
                 p.reliable();
                 putint(p, N_GETMAP);
@@ -2385,7 +2525,8 @@ namespace client
                     if(alen < 0 || alen > p.remaining()) break;
                     char *arg = newstring(alen);
                     getstring(arg, p, alen+1);
-                    parsecommand(f, text, arg);
+                    if(lcn == -1 && cn == -1 && !strcmp(text, "mappackage")) receivepackageoffer(arg);
+                    else parsecommand(f, text, arg);
                     delete[] arg;
                     break;
                 }

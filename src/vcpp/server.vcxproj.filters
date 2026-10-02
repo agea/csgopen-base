@@ -293,7 +293,7 @@
     </Image>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="..\redeclipse.rc">
+    <ResourceCompile Include="..\eclipse-recoil.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>

@@ -1539,6 +1539,66 @@ namespace server
         modecheck(mode, muts);
     }
 
+    struct mappackage
+    {
+        string name, filename;
+        int size;
+        uint crc;
+    };
+    vector<mappackage> mappackagecache;
+
+    mappackage *findmappackage(const char *name)
+    {
+        string map;
+        if(!G(mappackages) || !mappackagename(name, map) ||
+            (listincludes(G(mainmaps), map, strlen(map)) < 0 && listincludes(G(allowmaps), map, strlen(map)) < 0)) return NULL;
+        loopv(mappackagecache) if(!strcmp(mappackagecache[i].name, map)) return &mappackagecache[i];
+        defformatstring(filename, "%s/%s.zip", G(mappackagedir), map);
+        stream *f = openrawfile(filename, "rb");
+        if(!f) return NULL; // Native maps need no extra package.
+        stream::offset size = f->size();
+        if(size <= 0 || size > MAP_PACKAGE_LIMIT) { delete f; return NULL; }
+        mappackage &pkg = mappackagecache.add();
+        copystring(pkg.name, map);
+        copystring(pkg.filename, filename);
+        pkg.size = int(size);
+        pkg.crc = mappackagecrc(f);
+        delete f;
+        return &pkg;
+    }
+
+    const char *mappackageoffer(const char *name)
+    {
+        static string offer;
+        offer[0] = 0;
+        mappackage *pkg = findmappackage(name);
+        int port = http::getserverport();
+        if(pkg && port) formatstring(offer, "%s %u %d %d", pkg->name, pkg->crc, pkg->size, port);
+        return offer;
+    }
+
+    void servemappackage(httpreq *r)
+    {
+        const char *name = r->vars.get("name"), *crc = r->vars.get("crc");
+        mappackage *pkg = r->reqtype == HTTP_T_GET && name && crc ? findmappackage(name) : NULL;
+        stream *f = pkg && strtoul(crc, NULL, 10) == pkg->crc ? openrawfile(pkg->filename, "rb") : NULL;
+        if(!f || f->size() != pkg->size)
+        {
+            DELETEP(f);
+            r->output.setsize(0);
+            r->send("HTTP/1.0 404 Not Found");
+            r->send("Content-Length: 0");
+            r->send("");
+            return;
+        }
+        r->send("Content-Type: application/zip");
+        r->sendf("Content-Length: %d", pkg->size);
+        r->send("Connection: close");
+        r->send("");
+        r->responsebody = f;
+    }
+    HTTP("/map-package", servemappackage);
+
     const char *choosemap(const char *suggest, int mode, int muts, int force, bool notry)
     {
         static string chosen;
@@ -3578,6 +3638,11 @@ namespace server
         scores.shrink(0);
         aiman::clearai(numclients() && m_bots(gamemode) ? 2 : 0);
         const char *reqmap = name && *name && strcmp(name, "<random>") ? name : pickmap(NULL, gamemode, mutators);
+        if(G(mappackages))
+        {
+            mappackage *pkg = findmappackage(reqmap);
+            if(pkg && !addmapzip(pkg->filename, pkg->name)) fatal("Invalid map package: %s", pkg->filename);
+        }
         if(!m_edit(gamemode) && servercheck(reqmap && *reqmap))
         {
             loopi(SENDMAP_MAX)
@@ -3589,6 +3654,11 @@ namespace server
             if(!hasmapdata()) resetmapdata();
         }
         copystring(smapname, reqmap);
+        if(G(mappackages))
+        {
+            const char *offer = mappackageoffer(smapname);
+            sendf(-1, 1, "ri2sis", N_COMMAND, -1, "mappackage", int(strlen(offer)), offer);
+        }
         sendf(-1, 1, "risi5", N_MAPCHANGE, smapname, gamemode, mutators, hasmapdata() ? smapcrc : -1, smapvariant, clientnum);
 
         // server modes
@@ -4118,6 +4188,15 @@ namespace server
     {
         putint(p, N_WELCOME);
         putint(p, mastermode);
+        if(G(mappackages))
+        {
+            const char *offer = mappackageoffer(smapname);
+            putint(p, N_COMMAND);
+            putint(p, -1);
+            sendstring("mappackage", p);
+            putint(p, strlen(offer));
+            sendstring(offer, p);
+        }
         putint(p, N_MAPCHANGE);
         sendstring(smapname, p);
         putint(p, gamemode);

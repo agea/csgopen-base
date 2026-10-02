@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 STATE="$ROOT/.csgopen"
+CSGOPEN_PACKAGE="$ROOT/data/csgopen"
 fail() { echo "CSGOpen: $*" >&2; exit 1; }
 
 prerequisites() {
@@ -50,8 +51,10 @@ profile() {
     RUNTIME="$STATE/$1"
     mkdir -p "$RUNTIME" "$STATE/logs"
     export REDECLIPSE_HOME="$RUNTIME"
+    export ECLIPSE_RECOIL_HOME="$RUNTIME"
     # Avoid inherited installation/content overrides from an unrelated launcher.
     unset REDECLIPSE_DATADIR REDECLIPSE_EXTRADIRS REDECLIPSE_PATH
+    unset ECLIPSE_RECOIL_DATADIR ECLIPSE_RECOIL_EXTRADIRS ECLIPSE_RECOIL_PATH
     cd "$ROOT"
 }
 
@@ -59,7 +62,7 @@ testmap() {
     MAP=echo
     if [[ $# -gt 0 && "$1" != -* ]]; then MAP=$1; fi
     [[ "$MAP" =~ ^[A-Za-z0-9_-]+$ ]] || fail "nome mappa non valido: $MAP"
-    [[ -f "$ROOT/data/maps/$MAP.mpz" ]] || fail "mappa mancante: $MAP"
+    [[ -f "$ROOT/data/maps/$MAP.mpz" || -f "$CSGOPEN_PACKAGE/maps/$MAP.mpz" || -f "$CSGOPEN_PACKAGE/$MAP.zip" ]] || fail "mappa mancante: $MAP"
 }
 
 tdmprofile() {
@@ -94,49 +97,59 @@ case "$command" in
         jobs=${CSGOPEN_JOBS:-4}
         [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || fail "CSGOPEN_JOBS deve essere un intero positivo"
         make -C "$ROOT/src" -j"$jobs" client server 2>&1 | tee "$STATE/logs/build.log"
-        binary redeclipse_native
-        binary redeclipse_server_native
+        binary eclipse-recoil_native
+        binary eclipse-recoil_server_native
         ;;
     original)
         prerequisites
         content
-        binary redeclipse_native
+        binary eclipse-recoil_native
         profile original
-        exec "$ROOT/src/redeclipse_native" "-h$RUNTIME" "-g$STATE/logs/original.log" -sm -ss0 -dw1280 -dh720 -df0 "$@"
+        exec "$ROOT/src/eclipse-recoil_native" "-h$RUNTIME" "-g$STATE/logs/original.log" -sm -ss0 -dw1280 -dh720 -df0 "$@"
         ;;
     tdm)
         prerequisites
         content
-        binary redeclipse_native
+        binary eclipse-recoil_native
         testmap "$@"
         if [[ $# -gt 0 && "$1" != -* ]]; then shift; fi
         profile csgopen-client
         tdmprofile
-        exec "$ROOT/src/redeclipse_native" "-h$RUNTIME" "-g$STATE/logs/tdm-client.log" -bconfig/csgopen/branding.cfg -sm -ss0 -dw1280 -dh720 -df0 "-xtdm $MAP" "$@"
+        exec "$ROOT/src/eclipse-recoil_native" "-h$RUNTIME" "-p$CSGOPEN_PACKAGE" "-g$STATE/logs/tdm-client.log" -bconfig/csgopen/branding.cfg -sm -ss0 -dw1280 -dh720 -df0 "-xtdm $MAP" "$@"
         ;;
     server)
         prerequisites
         content
-        binary redeclipse_server_native
-        testmap "$@"
-        if [[ $# -gt 0 && "$1" != -* ]]; then shift; fi
+        binary eclipse-recoil_server_native
+        # The rotation CFG chooses the first map unless explicitly overridden.
+        MAP=
+        if [[ $# -gt 0 && "$1" != -* ]]; then testmap "$@"; shift; fi
         port=${CSGOPEN_PORT:-28801}
         [[ "$port" =~ ^[0-9]{1,5}$ ]] || fail "CSGOPEN_PORT non valido"
         port=$((10#$port))
         [[ "$port" -ge 1024 && "$port" -le 65534 ]] || fail "CSGOPEN_PORT deve essere tra 1024 e 65534"
+        httpport=${CSGOPEN_HTTP_PORT:-28888}
+        [[ "$httpport" =~ ^[0-9]{1,5}$ ]] || fail "CSGOPEN_HTTP_PORT non valido"
+        httpport=$((10#$httpport))
+        [[ "$httpport" -ge 1024 && "$httpport" -le 65535 ]] || fail "CSGOPEN_HTTP_PORT deve essere tra 1024 e 65535"
         profile server
         cat > "$RUNTIME/servinit.cfg" <<EOF
 exec "config/csgopen/tdm.cfg"
-sv_defaultmap "maps/$MAP"
+exec "config/csgopen/server-maps.cfg"
 serverip "127.0.0.1"
 serverport $port
 serverlanport 0
 servermaster ""
 masterserver 0
-httpserver 0
+httpserverip "127.0.0.1"
+httpserverport $httpport
+httpserver 1
 EOF
+        if [[ -n "$MAP" ]]; then
+            printf 'sv_defaultmap "%s"\nsv_savevars\n' "$MAP" >> "$RUNTIME/servinit.cfg"
+        fi
         echo "Server locale: nella console client usare connect 127.0.0.1 $port"
-        exec "$ROOT/src/redeclipse_server_native" "-h$RUNTIME" "-g$STATE/logs/server.log" -si127.0.0.1 -sm -ss1 "-sp$port" "$@"
+        exec "$ROOT/src/eclipse-recoil_server_native" "-h$RUNTIME" "-p$CSGOPEN_PACKAGE" "-g$STATE/logs/server.log" -si127.0.0.1 -sm -ss1 "-sp$port" "$@"
         ;;
     *)
         echo "Uso: $0 {check|build|original [opzioni]|tdm [mappa] [opzioni]|server [mappa] [opzioni]}"

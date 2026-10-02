@@ -3984,6 +3984,14 @@ void reloadtex(char *name)
 }
 COMMAND(0, reloadtex, "s");
 
+void reloadmappackagetextures(const char *prefix)
+{
+    vector<char *> names;
+    enumerate(textures, Texture, t, if(strstr(t.name, prefix) && !(t.type&Texture::TRANSIENT)) names.add(newstring(t.name)));
+    loopv(names) reloadtex(names[i]);
+    names.deletearrays();
+}
+
 void reloadtextures()
 {
     int reloaded = 0;

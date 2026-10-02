@@ -11,7 +11,7 @@ fail() { echo "CSGOpen VMF converter: $*" >&2; exit 1; }
 [[ -n "$SOURCE" ]] || fail "usage: $0 /path/to/map.vmf [scale]"
 [[ -f "$SOURCE" ]] || fail "source not found: $SOURCE"
 [[ "$SOURCE" == *.vmf ]] || fail "source must be a .vmf file"
-[[ -x "$ROOT/src/redeclipse_native" ]] || fail "build the client first: scripts/csgopen/dev.sh build"
+[[ -x "$ROOT/src/eclipse-recoil_native" ]] || fail "build the client first: scripts/csgopen/dev.sh build"
 
 MAP=$(basename "$SOURCE" .vmf)
 MAP=${MAP%_d}
@@ -24,7 +24,7 @@ LOG="$STATE/logs/vmfimport-$MAP.log"
 python3 "$ROOT/scripts/csgopen/vmf.py" --scale "$SCALE" "$SOURCE" "$STAGE"
 
 cd "$ROOT"
-"$ROOT/src/redeclipse_native" \
+"$ROOT/src/eclipse-recoil_native" \
     "-h$PROFILE" \
     "-p$PACKAGE" \
     "-g$LOG" \
@@ -41,4 +41,4 @@ echo "Converted VMF package: $PACKAGE"
 echo "Generated MPZ: $PACKAGE/maps/$MAP.mpz"
 echo "Log: $LOG"
 echo "Play with:"
-echo "  $ROOT/src/redeclipse_native -h$PROFILE -p$PACKAGE -bconfig/csgopen/branding.cfg -sm -ss0 -dw1280 -dh720 -df0 '-xexec \"play.cfg\"'"
+echo "  $ROOT/src/eclipse-recoil_native -h$PROFILE -p$PACKAGE -bconfig/csgopen/branding.cfg -sm -ss0 -dw1280 -dh720 -df0 '-xexec \"play.cfg\"'"

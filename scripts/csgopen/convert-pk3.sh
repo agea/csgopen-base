@@ -11,7 +11,7 @@ fail() { echo "CSGOpen map converter: $*" >&2; exit 1; }
 
 [[ -n "$SOURCE" ]] || fail "usage: $0 /path/to/map.pk3 [bsp-name] [nearest|lowest]"
 [[ -f "$SOURCE" ]] || fail "source not found: $SOURCE"
-[[ -x "$ROOT/src/redeclipse_native" ]] || fail "build the client first: scripts/csgopen/dev.sh build"
+[[ -x "$ROOT/src/eclipse-recoil_native" ]] || fail "build the client first: scripts/csgopen/dev.sh build"
 
 if [[ -z "$MAP" ]]; then
     MAP=$(basename "$SOURCE")
@@ -32,7 +32,7 @@ args+=("$SOURCE" "$STAGE")
 python3 "${args[@]}"
 
 cd "$ROOT"
-"$ROOT/src/redeclipse_native" \
+"$ROOT/src/eclipse-recoil_native" \
     "-h$PROFILE" \
     "-p$PACKAGE" \
     "-g$LOG" \
@@ -50,4 +50,4 @@ echo "Converted map package: $PACKAGE"
 echo "Generated MPZ: $PACKAGE/maps/$MAP.mpz"
 echo "Log: $LOG"
 echo "Play with:"
-echo "  $ROOT/src/redeclipse_native -h$PROFILE -p$PACKAGE -bconfig/csgopen/branding.cfg -sm -ss0 -dw1280 -dh720 -df0 '-xexec \"play.cfg\"'"
+echo "  $ROOT/src/eclipse-recoil_native -h$PROFILE -p$PACKAGE -bconfig/csgopen/branding.cfg -sm -ss0 -dw1280 -dh720 -df0 '-xexec \"play.cfg\"'"

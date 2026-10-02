@@ -20,23 +20,23 @@ jobs:
           - platform: macos
             arch: arm64
             runner: macos-15
-            binary: src/redeclipse_native
+            binary: src/eclipse-recoil_native
           - platform: macos
             arch: x86_64
             runner: macos-15-intel
-            binary: src/redeclipse_native
+            binary: src/eclipse-recoil_native
           - platform: linux
             arch: x86_64
             runner: ubuntu-22.04
-            binary: src/redeclipse_linux
+            binary: src/eclipse-recoil_linux
           - platform: linux
             arch: arm64
             runner: ubuntu-22.04-arm
-            binary: src/redeclipse_linux
+            binary: src/eclipse-recoil_linux
           - platform: windows
             arch: x86_64
             runner: windows-2022
-            binary: src/redeclipse_windows_amd64.exe
+            binary: src/eclipse-recoil_windows_amd64.exe
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
       RELEASE_PLATFORM: ${{ matrix.platform }}
@@ -104,7 +104,7 @@ jobs:
           python scripts/release/windows-icon.py
           make -C src -j"$(nproc)" client WINDOWS_PKG_CONFIG=1 \
             PLATFORM_BUILD="$GITHUB_RUN_NUMBER" PLATFORM_BRANCH="$GITHUB_REF_NAME" PLATFORM_REVISION="$GITHUB_SHA" \
-            WINRES_FLAGS='-i ../.csgopen/windows-resources/eclipse-recoil.rc -I . -J rc -o redeclipse.res -O coff -F pe-x86-64'
+            WINRES_FLAGS='-i ../.csgopen/windows-resources/eclipse-recoil.rc -I . -J rc -o eclipse-recoil.res -O coff -F pe-x86-64'
           python scripts/release/package.py --platform "$RELEASE_PLATFORM" \
             --arch "$RELEASE_ARCH" --binary "$RELEASE_BINARY" \
             --commit "$GITHUB_SHA" --build "$GITHUB_RUN_NUMBER"

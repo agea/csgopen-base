@@ -55,7 +55,7 @@ selection. The build has been tested on arm64; Intel has not been tested.
 
 The script uses the upstream Makefile with four parallel jobs by default
 (`CSGOPEN_JOBS=8 scripts/csgopen/dev.sh build` changes this). It runs exactly
-`src/redeclipse_native` and `src/redeclipse_server_native`, with no fallback
+`src/eclipse-recoil_native` and `src/eclipse-recoil_server_native`, with no fallback
 to another installation. Repository paths and arguments are quoted; you can
 invoke the script by its absolute path from another directory. Binaries are
 not installed globally. The upstream launcher now recognizes Darwin and looks
@@ -149,7 +149,7 @@ hide. The low-level converter retains `--neutral-backing` as an experimental
 diagnostic option, but reusable conversions should repair missing render
 panels at the prop/mesh level instead.
 
-Static props are decoded from the version-11 game lump and MDL/VVD/VTX assets
+Static props are decoded from the version-10/11 game lump and MDL/VVD/VTX assets
 with Blender plus the Plumber addon. Playable instances are merged into local
 tile models, reduced toward the requested global triangle budget, and textured
 from the BSP pakfile and game VPK. The reducer identifies solid and
@@ -165,13 +165,31 @@ the triangle budget is a target rather than a strict ceiling.
 
 This is still not a complete Source runtime. Dynamic props, lightmaps,
 cubemaps, Source shader effects, navigation data and non-spawn gameplay
-entities are not converted. Static-prop visuals currently rely on the BSP's
-brush/player-clip collision rather than importing every PHY hull. Consequently
-a map can retain its layout, props and base textures while still showing
-different lighting or allowing passage through an unclipped decorative prop.
-Generated assets remain under
-`.csgopen/map-convert/`. Valve assets are read from the user's local game and
-must not be committed or redistributed without the appropriate permission.
+entities are not converted. Static props marked solid by Source receive
+invisible triangle-collision carriers built from their reduced render geometry;
+these carriers also participate in bot line-of-sight ray tests. The converter
+does not yet import the original PHY hulls, so collision is approximate, while
+decorative non-solid props remain passable. Consequently a map can retain its
+layout, props and base textures while still showing different lighting or
+different fine collision around simplified props.
+
+World brushes carrying Source `CONTENTS_WATER` are converted to real Eclipse
+Recoil octree water volumes on an 8-unit grid. The importer applies the native
+Red Eclipse water material only to empty cubes and omits Source `SURF_WARP`
+faces from the render model, avoiding an incompatible flat Source-water mesh.
+Volumes outside the playable envelope, such as 3D-skybox copies, are ignored.
+Irregular or sloped Source water brushes are necessarily approximated by
+grid-aligned bounds because Cube 2 materials occupy octree volumes.
+
+The wrapper stages a conversion under `.csgopen/map-convert/`. To retain a
+locally converted map independently of disposable profiles and converter
+caches, package its `maps/*` files and `csgopen/imported/<map>/*` tree as
+`data/csgopen/<map>.zip`. The TDM client adds `data/csgopen` as a package root,
+and the dedicated server validates and mounts the selected map's ZIP before
+reading its MPZ. The original profile excludes this package root. These local
+ZIP packages are ignored by Git. Valve assets are read from the user's local
+game and must not be committed or redistributed without the appropriate
+permission.
 
 ### Valve VMF map converter
 
@@ -462,13 +480,73 @@ In another terminal, run `scripts/csgopen/dev.sh tdm`, then use the game console
 
 The dedicated server uses the same preset, binds to **127.0.0.1**, and uses
 UDP port 28801 for gameplay and 28802 for information queries. LAN discovery,
-public master registration, and HTTP are disabled. No router or cloud setup is
+public master registration, and the master server are disabled. The native
+HTTP server listens on **127.0.0.1:28888/TCP** for complete map-package downloads.
+No router or cloud setup is
 needed. Use exactly `127.0.0.1`: only this literal address is exempt from the
 public-server guidelines prompt, without storing agreement to those terms.
 
 For another port, use `CSGOPEN_PORT=28811 scripts/csgopen/dev.sh server` and
 the same port in `connect`. Stop the server with Ctrl-C. Run only one instance
 per profile; do not launch two Eclipse Recoil clients sharing the same profile.
+
+### Rotation, voting, and automatic map packages
+
+`scripts/csgopen/dev.sh server` reads `config/csgopen/server-maps.cfg` without
+injecting a fixed starting map. `sv_defaultmap ""` selects the first map from
+`sv_mainmaps`. The initial list mixes `de_bank`, `de_lake`, `de_safehouse`,
+`de_dust2`, `echo`, and `dutility`. Install the converted ZIPs locally before
+including their names. Edit this CFG and restart the server to change the list
+or match settings. The optional `server <map>` argument still explicitly
+overrides the starting map for diagnostics.
+
+The preset uses 10-minute TDM matches without a score limit or overtime,
+followed by 10 seconds of results and up to 20 seconds of voting. Players may
+propose maps in the rotation. Normal multiplayer votes do not pass mid-match;
+the upstream solo-player/veto behavior still permits an immediate change.
+During voting a proposal passes early with 50% of eligible players; at timeout
+the highest vote count wins, with random tie breaking. Without votes, the server
+selects a random map, excluding the most recent map when alternatives exist.
+This is random rotation, not an ordered cycle: the upstream `sv_rotatemaps 1`
+implementation also currently chooses randomly.
+
+The server announces each selected ZIP's name, byte size, CRC32, and HTTP port
+before announcing the map. The TDM client enables `mapautodownload` and checks
+its installed ZIP and private `map-packages/<map>_<crc>.zip` cache. Missing or
+different packages download from `/map-package` on the **connected game
+server's IP**, with progress on the loading screen. The client checks size and
+CRC32, validates the ZIP's paths, mounts it, and only then loads the map.
+Failed downloads remain outside gameplay and display a retry message. Reconnect
+after correcting the problem. Failure and cancellation remove partial files.
+
+Packages may contain only `maps/<map>.{mpz,cfg,png,txt,wpt}` and
+`csgopen/imported/<map>/*`; MPZ and CFG are required. Limits are 512 MiB
+compressed and 2 GiB uncompressed. Traversal, encrypted entries, malformed
+directories, and files outside that map's namespace are rejected. ZIPs are
+mounted rather than extracted. Downloaded versions take precedence over
+installed content; imported models and textures refresh when mounted.
+Replace ZIPs and restart the server to refresh its package metadata cache.
+CRC32 detects corruption and identifies cached versions; it is not a
+cryptographic signature.
+
+Native maps need no extra ZIP and retain their existing automatic
+MPZ/CFG/preview transfer. Both peers need builds containing this extension for
+complete ZIP downloads; older clients do not understand the announcement.
+It uses the existing reliable command channel without changing the upstream
+protocol number. Downloaded caches remain inside the user's client profile.
+
+The initial transport is **HTTP on loopback**, using the engine's asynchronous
+network loop without an external downloader or new runtime dependency. HTTPS,
+remote hosting, and public/LAN deployment are not configured by the development
+launcher. `CSGOPEN_HTTP_PORT=28889 scripts/csgopen/dev.sh server` changes the
+package port. A deployment profile must bind both gameplay and HTTP listeners
+appropriately and make both ports reachable by its players.
+
+Package regression tests use an isolated loopback server without public registration:
+
+```sh
+python3 scripts/csgopen/test_server_maps.py -v
+```
 
 Repeatable smoke test, with the server already running on the default port:
 
@@ -487,7 +565,8 @@ regeneration after damage, or rendering quality.
 
 ## Profiles, tuning, and troubleshooting
 
-All local state is ignored by Git:
+All local runtime state is ignored by Git. Locally imported Source content is
+also ignored, but lives outside the disposable runtime tree:
 
 | Path | Purpose |
 | --- | --- |
@@ -495,9 +574,12 @@ All local state is ignored by Git:
 | `.csgopen/csgopen-client/` | Preset client, integrated server, and cache |
 | `.csgopen/server/` | Dedicated server |
 | `.csgopen/logs/` | Build and launch logs; launch logs are overwritten on restart |
+| `data/csgopen/<map>.zip` | Self-contained local map package: MPZ, CFG, preview, models, textures, and collision |
 
 Launchers regenerate the managed initialization files for their own profiles.
 Edit `config/csgopen/tdm.cfg` for server settings, then restart the sessions.
+Edit `config/csgopen/server-maps.cfg` for dedicated-server rotation, voting,
+match duration, and complete map-package distribution.
 `config/csgopen/client.cfg` contains only client preferences. Server examples:
 `sv_playerspawndelay` and `sv_botspawndelay` are in milliseconds;
 `sv_movespeed` is a multiplier; `sv_moveaccelscale` and `sv_movebrakescale`
