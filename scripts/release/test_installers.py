@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 import zipfile
 
 import installers
@@ -163,6 +164,14 @@ class InstallerChecks(unittest.TestCase):
     def test_windows_single_archive(self):
         self.assert_installed('windows', 'x86_64', False)
 
+    def test_windows_ignores_tar_shadowing_native_tool_on_path(self):
+        fakebin = self.root / 'fakebin'
+        fakebin.mkdir()
+        # A PATH lookup would select this invalid executable and fail.
+        (fakebin / 'tar.exe').write_bytes(b'not a Windows executable')
+        with patch.dict(os.environ, {'PATH': str(fakebin) + os.pathsep + os.environ['PATH']}):
+            self.assert_installed('windows', 'x86_64', True)
+
     def native_platform(self):
         return 'windows' if os.name == 'nt' else 'linux'
 
@@ -234,15 +243,38 @@ class InstallerChecks(unittest.TestCase):
     def test_generation_pins_release_and_notes(self):
         installers.generate(self.generated, 'agea/eclipse-recoil', TAG, COMMIT, '4')
         for suffix in ('sh', 'ps1'):
-            script = (self.generated / f'eclipse-recoil-install.{suffix}').read_text()
+            script = (self.generated / f'eclipse-recoil-install.{suffix}').read_text(encoding='utf-8')
             self.assertIn(f'/releases/download/{TAG}', script)
             self.assertNotIn('@BASE_URL@', script)
             self.assertNotIn('/latest/', script)
-        notes = (self.generated / 'release-notes.md').read_text()
+        notes = (self.generated / 'release-notes.md').read_text(encoding='utf-8')
         self.assertIn('Install Build 4', notes)
         self.assertIn('bash eclipse-recoil-install.sh', notes)
         self.assertIn('powershell -NoProfile', notes)
         self.assertIn(f'/blob/{COMMIT}/doc/csgopen/releases.md', notes)
+
+    def test_generation_preserves_utf8_with_windows_default_encoding(self):
+        native_read_text = Path.read_text
+        native_write_text = Path.write_text
+
+        def windows_read_text(path, *args, **kwargs):
+            kwargs.setdefault('encoding', 'cp1252')
+            return native_read_text(path, *args, **kwargs)
+
+        def windows_write_text(path, data, *args, **kwargs):
+            kwargs.setdefault('encoding', 'cp1252')
+            return native_write_text(path, data, *args, **kwargs)
+
+        with patch.object(Path, 'read_text', new=windows_read_text), \
+                patch.object(Path, 'write_text', new=windows_write_text):
+            self.test_generation_pins_release_and_notes()
+            for suffix in ('sh', 'ps1'):
+                expected = (installers.ROOT / f'scripts/release/install.{suffix}').read_text(encoding='utf-8')
+                expected = expected.replace('@TAG@', TAG).replace(
+                    '@BASE_URL@', f'https://github.com/agea/eclipse-recoil/releases/download/{TAG}')
+                self.assertEqual((self.generated / f'eclipse-recoil-install.{suffix}').read_bytes(), expected.encode('utf-8'))
+            notes = (self.generated / 'release-notes.md').read_text(encoding='utf-8')
+            self.assertIn('Eclipse Recoil — Be kind, reload', notes)
 
     def test_generation_rejects_mismatched_or_unsafe_metadata(self):
         for repository, tag, commit, build in (

@@ -7,7 +7,10 @@ $baseUrl = '@BASE_URL@'
 # PROCESSOR_ARCHITEW6432 reveals the native CPU from a 32-bit PowerShell.
 $architecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 if ($architecture -ne 'AMD64') { throw "Unsupported Windows architecture: $architecture. An x86_64 PC is required." }
-if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) { throw 'Windows tar.exe is required (Windows 10 or newer).' }
+# Do not resolve tar through PATH: MSYS2/Git tar treats drive letters as hosts.
+$systemDirectory = if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) { 'Sysnative' } else { 'System32' }
+$tarExecutable = Join-Path $env:SystemRoot "$systemDirectory\tar.exe"
+if (-not (Test-Path -LiteralPath $tarExecutable -PathType Leaf)) { throw 'Windows tar.exe is required (Windows 10 or newer).' }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $name = 'eclipse-recoil-windows-x86_64'
 $archive = "$name.zip"
@@ -86,7 +89,7 @@ try {
     }
     Write-Host 'Extracting game...'
     New-Item -ItemType Directory -Path $staging | Out-Null
-    & tar.exe -xf $sourceArchive -C $staging
+    & $tarExecutable -xf $sourceArchive -C $staging
     if ($LASTEXITCODE -ne 0) { throw 'Archive extraction failed.' }
     $launcher = Join-Path $staging "$name\Eclipse Recoil.bat"
     if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw 'The archive does not contain the expected game launcher.' }

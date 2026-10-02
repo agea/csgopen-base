@@ -21,7 +21,7 @@ def generate(output, repository, tag, commit, build, download_base=None):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     for extension in ('sh', 'ps1'):
-        template = (ROOT / f'scripts/release/install.{extension}').read_text()
+        template = (ROOT / f'scripts/release/install.{extension}').read_text(encoding='utf-8')
         script = template.replace('@TAG@', tag).replace('@BASE_URL@', base)
         # Keep LF on every CI host, including Windows.
         (output / f'eclipse-recoil-install.{extension}').write_bytes(script.encode('utf-8'))
@@ -74,7 +74,7 @@ See the [release guide](https://github.com/{repository}/blob/{commit}/doc/csgope
 for manual extraction, requirements and profile locations.
 
 Commit: `{commit}`
-''')
+''', encoding='utf-8')
 
 
 if __name__ == '__main__':

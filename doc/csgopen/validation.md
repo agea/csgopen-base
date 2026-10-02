@@ -1199,3 +1199,31 @@ Fixtures and generated preview notes remain under `.csgopen/`; HTTP servers
 were loopback-only and were stopped after testing. Actual public asset
 availability, native Linux/Windows runs, and multi-gigabyte end-to-end
 installation remain CI/release checks. No release was published locally.
+
+## Windows installer CI failure correction (2026-10-02)
+
+The supplied Windows job log failed during installer tests, before the C++
+client build. Three extraction tests selected MSYS2's `tar.exe` from `PATH`;
+GNU tar interpreted `D:\...` as a remote archive and reported
+`Cannot connect to D: resolve failed`. The metadata test also raised a
+`UnicodeDecodeError` while reading generated UTF-8 through the Windows CP1252
+default. The existing 10 packaging tests had passed in that job.
+
+The PowerShell installer now invokes Windows' native `tar.exe` by its absolute
+system path, using `Sysnative` from a 32-bit process on 64-bit Windows and
+`System32` otherwise. Template reads, generated release-note writes and test
+reads explicitly use UTF-8. Added regression cases simulate CP1252 defaults
+and, on Windows, put an invalid `tar.exe` first on `PATH` to ensure it cannot
+replace the native extractor.
+
+Executed on macOS arm64:
+
+- `python3 scripts/release/test_installers.py -v`: **13 passed, 3 skipped**,
+  including the new CP1252 regression. The native Windows archive tests and
+  PATH-shadow regression remain for the Windows CI runner. Log:
+  `.csgopen/logs/windows-installer-fix-tests.log`.
+- Python source compilation, generated Bash syntax and `git diff --check`
+  passed. The test HTTP servers were loopback-only and stopped on completion.
+
+A new Windows CI run is required to confirm native extraction and reach the
+client compiler. No remote workflow was triggered and no release was published.
