@@ -312,7 +312,11 @@ void setupdisplay(bool dogl = true, bool msg = true)
     SDL_GL_GetDrawableSize(screen, &renderw, &renderh);
 
     int index = getdisplaymode();
-    if(windowfocus && SDL_GetWindowFlags(screen)&SDL_WINDOW_FULLSCREEN && (display.w != screenw || display.h != screenh))
+    // Desktop fullscreen uses the window manager's client size, which can differ
+    // from the display mode (e.g. the macOS camera notch). Only enforce a mode
+    // match for exclusive fullscreen, or resize events keep toggling fullscreen.
+    Uint32 fullscreenflags = SDL_GetWindowFlags(screen)&SDL_WINDOW_FULLSCREEN_DESKTOP;
+    if(windowfocus && fullscreenflags == SDL_WINDOW_FULLSCREEN && (display.w != screenw || display.h != screenh))
     {
         scr_w = clamp(display.w, SCR_MINW, SCR_MAXW);
         scr_h = clamp(display.h, SCR_MINH, SCR_MAXH);

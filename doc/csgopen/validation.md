@@ -738,3 +738,266 @@ accepts CRLF, unlike the Ubuntu runner in the supplied log.
 `actionlint` and `git diff --check` also pass. No native rebuild was needed for
 this Python-only correction. Full GitHub release publication remains pending
 the next run with the corrected manifest generator.
+
+### Compiled Quake 3 BSP conversion front end — 1 October 2026
+
+The new Python front end was exercised against all six supplied Urban Terror
+PK3 files: `ut4_thewall`, `ut4_quickfight`, `ut4_iran3`, `ut4_fastfight`,
+`ut4_boxtrot_v1`, and `ut4_baeza`. It parsed their compiled IBSP 46 data
+without relying on source brush files and found render geometry, solid
+collision brushes, and player starts in every archive. Quickfight produced
+7,916 source render vertices, 4,953 OBJ triangles, 389 solid brushes, and 32
+recognized player starts.
+
+The five synthetic regression tests pass. They cover compiled geometry and
+collision data, red-team spawn translation, a PK3 containing only a compiled
+BSP, rejection of an unsupported BSP version, and literal backslashes in
+entity values. They also check two-sided collision generation and floor-backed
+spawn placement. Python bytecode compilation and `git diff --check` also pass.
+
+The collidable-mapmodel backend was then exercised end to end with Quickfight.
+It extracted the two directly referenced image textures, generated the OBJ and
+model configuration, transformed all 32 player starts, and saved a native MPZ
+from an isolated editor profile. A TDM client loaded that MPZ and its staged
+content package, joined Omega at an imported spawn with 100 health, rendered
+the converted geometry and texture, saved a 1280x720 screenshot, emitted
+`Q3PLAY_DONE ut4_quickfight`, and exited normally. One bot later fell to its
+death in this initial implementation.
+
+The collision backend was subsequently separated from the render model and
+made two-sided. Spawn placement now ray-tests walkable compiled surfaces and
+adds explicit player clearance. Quickfight generated 9,902 collision triangles
+(both windings of 4,951 solid source triangles); all 32 starts found a supporting
+floor with no fallback. A regenerated MPZ then completed a 35-second TDM run:
+the human and bot moved and exchanged kills, the log contained no fall deaths,
+and the client emitted `Q3PLAY_DONE ut4_quickfight` before exiting normally.
+This removes the reproduced spawn/collision failure, though it is not a proof
+of full traversal coverage for every map. A static support pass over all six
+supplied archives found floors for every recognized start: The Wall 24/24,
+Quickfight 32/32, Iran 3 41/41, Fastfight 55/55, Boxtrot 17/17, and Baeza
+23/23. Missing optional `.txt` and `.wpt` files were logged but do not prevent
+loading or play.
+
+The first manual launch exposed a 90-degree world rotation: the engine OBJ
+loader converts file coordinates with `(x, y, z) -> (z, -x, y)`. The exporter
+now writes the exact inverse `(-y, z, x)`, so the resulting engine coordinates
+match the BSP coordinates and the BSP Z axis remains vertical. The synthetic
+OBJ regression checks this conversion explicitly.
+
+After that correction, the complete wrapper also produced native MPZ packages
+for The Wall, Iran 3, Fastfight, Boxtrot v1, and Baeza. Every editor run emitted
+its `Q3IMPORT_DONE` marker and every expected MPZ exists. The conversions wrote
+all recognized supported starts (24, 41, 55, 17, and 23 respectively), with no
+unsupported-start fallback. These five packages have not yet received the same
+interactive traversal check as Quickfight.
+
+The `convert-pk3.sh` wrapper was also run from the original PK3 through MPZ
+generation and package assembly. It found the completion marker and produced a
+self-contained staged package under `.csgopen/map-convert/`. Conversion to
+editable Cube 2 octree geometry, shader-script translation, indirect shader
+texture discovery and systematic collision traversal remain future work.
+
+### Decompiled Valve VMF conversion — 1 October 2026
+
+The VMF front end was exercised with `de_safehouse_d.vmf` from ReagentX's
+decompiled CS:GO maps repository. The source contains brush/entity data but no
+CS:GO material or model assets, so the prototype intentionally uses a neutral
+skin. It reconstructed 1,990 solid brushes, 9,051 render triangles and 11,555
+collision triangles. All 25 recognized CT/T player starts found a supporting
+brush and were written as native Alpha/Omega starts.
+
+An initial gameplay load crashed in `BIH::build`. The macOS crash report showed
+recursive stack exhaustion, and inspection found 19 one-triangle OBJ groups
+created by material changes. The OBJ exporter now writes BIH-safe groups of at
+most 100 triangles and merges a final one-triangle remainder into the previous
+group. The same rule applies to render and collision meshes. Nine synthetic
+converter tests pass, including the regression for material changes and a
+one-triangle chunk remainder.
+
+The corrected client loaded the generated MPZ, started a TDM match, allowed a
+bot kill, saved a 1280x720 screenshot, emitted `VMFPLAY_DONE de_safehouse`, and
+exited with status 0. The complete `convert-vmf.sh` wrapper then regenerated a
+self-contained package at
+`.csgopen/map-convert/de_safehouse.FpYLNV/data`; the editor emitted
+`VMFIMPORT_DONE de_safehouse` and the expected MPZ exists. This verifies loading,
+collision initialization and imported starts, but not complete traversal of the
+house. Props, displacements, Source materials/textures, lighting and non-spawn
+gameplay entities remain unsupported. The upstream repository's licensing and
+the original game's redistribution terms must be reviewed before publishing any
+derived package; no converted Safehouse content is tracked in this repository.
+
+### Direct Source 1 BSP conversion — 2 October 2026
+
+The reusable `convert-source-bsp.sh` workflow was executed against the Steam
+CS:GO Legacy `de_dust2.bsp` and its local `pak01_dir.vpk`. The parser identified
+VBSP version 21, 375 entities, 9,715 world-model faces, 8,324 displacement
+records and 30 starts (15 Counter-Terrorist and 15 Terrorist). Every start found
+a supporting compiled surface. LOD 2 plus 3D-skybox exclusion produced 16,164
+render triangles and 48,492 authored OBJ render vertices. The collision copy
+contains both windings as 32,328 triangles.
+
+All 81 referenced playable world materials resolved through the BSP/VPK content
+store; none were missing and none used an unsupported VTF compression format.
+The wrapper emitted `SOURCEIMPORT_DONE de_dust2`, produced the expected MPZ and
+assembled a local staged package under `.csgopen/map-convert/`. The client then
+loaded that MPZ in 2.7 seconds, started a TDM match, emitted
+`SOURCEPLAY_DONE de_dust2`, saved a 1280x720 screenshot and exited with status
+0. The final automated run did not crash in render-VBO or BIH construction.
+
+The screenshot also establishes the current fidelity limit: the compiled world
+shell and base textures render, but the scene is visibly incomplete and unlike
+the finished Source presentation. Source props, brush submodels, lightmaps,
+shader blending and other runtime systems are not present. This run verifies
+direct BSP/VPK extraction, MPZ generation, loading and start serialization; it
+does not claim a faithful or fully traversable Dust II port. No Valve-derived
+map or texture asset is tracked in Git. A parser-only reuse smoke test also read
+`de_shortdust.bsp` as VBSP 21 and reported 443 entities, 31 starts, 11,425 world
+faces and 205 materials; full staging correctly remains subject to the model
+index limit.
+
+A follow-up inspection identified the large green/black plane in that screenshot
+as the default solid lower half created by Eclipse's `newmap`, not Source
+geometry. The engine now exposes `newmapfloor`, which defaults to the original
+behaviour; the Source build job sets it to zero before creating its empty map.
+The imported collision shell is divided into 51 double-sided BIH carriers on a
+1,024-Source-unit XY grid.
+
+The remaining fall-through was traced to editor selection state rather than the
+BIH data. Each scripted `newent` remained selected, so every following `entpos`
+moved all prior render, collision and spawn entities. All 82 entities therefore
+ended at the final Terrorist start. The generator now executes `entcancel` after
+positioning each entity. A fresh package placed the render model and all 51
+collision carriers at `(1240, 672.5, 2160.155)` while retaining all 30 distinct
+starts.
+
+Two TDM launches validated the result without the default octree floor. An Alpha
+start on the lower side remained at Z `2148.498` for three samples with physics
+state `floor`; an Omega start on a raised surface remained at Z `2203.247` for
+three samples with the same state. Both reported non-axis-aligned normals from
+the imported Source triangles, emitted `SOURCEPLAY_COLLISION_FIXED` or
+`SOURCEPLAY_RAISED_FIXED`, and exited normally. This verifies collision on both
+lower and raised compiled surfaces; exhaustive traversal and unsupported Source
+runtime objects remain outside this smoke test.
+
+The collision backend was then replaced with the compiled BSP brush topology.
+Dust II exposes 2,357 world-tree brushes; 1,990 carry solid or player-clip
+contents, including 1,243 authored player-clip volumes that the earlier
+visible-surface collision could not see. Together with displacement terrain,
+the new backend generated 31,383 source collision triangles, written with both
+windings as 62,766 triangles in 72 local BIH carriers. The editor again emitted
+`SOURCEIMPORT_DONE de_dust2`; 30/30 starts found support without a synthetic
+floor.
+
+The version-11 static-prop lump contains 3,158 instances and 1,258 model names.
+After excluding the remote 3D skybox, the reusable Blender/Plumber batch decoded
+1,022/1,022 model assets and wrote 2,253/2,253 playable instances. A global
+decimation ratio of `0.167383` reduced 4,480,736 instanced source triangles to
+750,994 triangles across 68 ushort-safe tile models. All 189 referenced prop
+materials and all 81 world materials resolved; there were no missing models,
+textures or unsupported VTF formats.
+
+The combined package registers 141 mapmodels: one visible world shell, 72
+collision carriers and 68 static-prop tiles. It compiled to an MPZ, loaded into
+a bot-free TDM client, captured a 1280x720 spawn screenshot, emitted
+`SOURCEPLAY_STRUCTURAL_DONE de_dust2`, and exited normally. The screenshot shows
+the previously absent roof, beams, crates, trim and other assembled architecture
+aligned with the textured world. This is a structural and spawn smoke test;
+manual route traversal is still required, and static props without authored
+brush/player-clip support do not yet receive their PHY collision hulls.
+
+Manual traversal of that first structural package exposed occasional invisible
+steps and two delayed exits. Both macOS crash reports identify stack exhaustion
+in `BIH::build`; the prop OBJ stream still allowed a material used by exactly
+one triangle to form a one-triangle mesh. The shared safe-chunk helper now
+duplicates an isolated render triangle, and every generated render group is
+limited to 100 triangles. A full scan of the lighter package found 4,095 OBJ
+groups and zero singleton groups.
+
+The default prop budget is now 300,000 triangles. Dust II produced 306,706
+triangles in 60 prop tiles, down from 750,994 triangles in 68 tiles. Collision
+also omits the undeformed source plane replaced by each displacement, reducing
+the double-sided result from 62,766 to 59,620 triangles and removing a likely
+source of invisible flat ledges over deformed terrain. The new package compiled
+successfully, loaded from a second spawn, remained active for the one-minute
+automated run, emitted `SOURCEPLAY_LIGHT_STABLE de_dust2`, captured a 1280x720
+screenshot and exited normally. No new macOS crash report was created. Longer
+manual traversal remains the decisive stability and collision test.
+
+A subsequent manual pass found a small number of transparent but non-passable
+wall patches. The generator now adds a neutral DXT1 backing shell for solid
+brush faces, inset by two Source units so ordinary textured surfaces remain in
+front. That first pass still left a wall transparent where bullet decals proved
+collision existed: the barrier used `CONTENTS_PLAYERCLIP`, not
+`CONTENTS_SOLID`. The fallback therefore includes near-vertical player-clip
+faces (`abs(normal.z) < 0.25`) while excluding horizontal caps, floors, ramps
+and displacement source planes. Dust II adds 10,576 backing triangles (31,728
+vertices), remains below the ushort model limit and introduces no singleton OBJ
+groups. The regenerated package compiled successfully; the preceding solid-only
+version also completed the one-minute test, emitted
+`SOURCEPLAY_LIGHT_STABLE de_dust2`, and created no new crash report.
+
+Further manual traversal showed that the aggressive whole-model collapse pass
+could erase disconnected panels inside architectural static props. The result
+looked like large triangular holes even though bullet decals and collision
+proved that the wall still existed. A planar-only prototype preserved those
+panels but expanded the props to 3,365,264 triangles; protecting every loose
+island still required 1,751,470. The final reducer counts connected islands by
+surface area and reserves eight triangles only for architectural islands of at
+least 512 square Source units. Tiny bars, bolts, trim and foliage remain under
+the ordinary global ratio. Dust II now contains 352,702 prop triangles in 62
+tile models, only about 15 percent more than the 306,706-triangle light build.
+A scan of 4,247 OBJ groups found zero singleton or empty groups. Together with
+16,164 world triangles, 59,364 double-sided collision triangles, and 10,576
+neutral-backing triangles, the package compiled and loaded in 4.9 seconds. It
+completed a bot-free one-minute run, emitted
+`SOURCEPLAY_PANEL_SAFE_STABLE de_dust2`, exited normally, and created no new
+macOS crash report. Manual inspection at the formerly damaged walls remains
+the final visual acceptance test.
+
+That manual inspection also rejected the neutral-backing workaround. Although
+it covered isolated transparent collision walls, large `playerclip` volumes
+painted whole facades and parts of the sky dark gray. Neutral backing is now
+disabled by default and available only through the explicit experimental
+`--neutral-backing` switch. A clean rebuild from an empty profile contains 135
+mapmodel definitions (one world shell, 72 collision carriers, and 62 prop
+tiles), no fallback model reference, and retains the panel-aware prop reducer.
+
+### macOS desktop fullscreen resize loop — 1 October 2026
+
+The downloaded ARM64 release (build 3, commit
+`296c16541d510c09750b9f106ab6a6908077d32b`) logged `Fatal signal 11` immediately
+after loading Echo. The user observed repeated transitions between fullscreen
+and windowed mode. A separate LLDB run reproduced those transitions, with
+repeated display reports of 1728 × 1117 versus a 1728 × 1084 fullscreen client
+area, but exited normally without reproducing the segmentation fault. The
+engine's signal handler had prevented an ordinary macOS crash report from
+being available for the original failure; no faulting stack was captured.
+
+`setupdisplay` previously forced every fullscreen client area to match the
+display mode, triggering another exit/re-entry whenever resize events reported
+the smaller client area. It now enforces that match only for exclusive
+fullscreen, accepting window-manager dimensions for desktop fullscreen. The
+SDL desktop flag includes the fullscreen bit, so the masked flags must be
+compared explicitly; checking either bit alone would retain the loop.
+
+Executed on the development Mac:
+
+- Native client build passed; log `.csgopen/logs/fullscreen-fix-build.log`.
+- A diagnostic copy of the corrected client was linked to all runtime libraries
+  from the downloaded release via a local symlink. The downloaded app and the
+  user's profile were preserved. Using the downloaded assets, it loaded Echo,
+  switched fullscreen → windowed → fullscreen and reached
+  `BUNDLED_FULLSCREEN_CHECK_DONE`, exiting with status 0. The repeated reset
+  loop disappeared; log `.csgopen/logs/release-crash-bundled-fixed-game.log`.
+- The corrected client with the downloaded libraries completed the explicit
+  network smoke test in fullscreen: **`SMOKE_DONE FAILURES 0`**, including
+  respawn and map change. Log `.csgopen/logs/fullscreen-smoke-client.log`.
+  Test profiles were isolated in `.csgopen/`; the test server used loopback port
+  28941 with public registration, LAN discovery and HTTP disabled.
+- `git diff --check` passed. Gameplay rules and assets are unchanged.
+
+This establishes the resize-loop fix; it does not prove the original signal
+11 arose from that loop. A fresh packaged GitHub release, other platforms,
+exclusive fullscreen and longer manual play remain untested for this change.
+The existing downloaded release can temporarily be launched with `-df0` to
+use a window until a release containing the engine fix is available.

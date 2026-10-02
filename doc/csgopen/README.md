@@ -64,6 +64,137 @@ place the binaries. Use the development script for this milestone.
 
 ## Local gameplay
 
+### Quake 3 / Urban Terror map converter
+
+`scripts/csgopen/q3bsp.py` reads compiled Quake 3 `IBSP` version 46 data
+directly from a `.bsp` or `.pk3`. It does not require an optional `.map` or
+`.bak` brush source. With no output directory it prints a JSON summary:
+
+```sh
+python3 scripts/csgopen/q3bsp.py /path/to/ut4_example.pk3
+```
+
+With an output directory it writes an OBJ render mesh and a JSON conversion
+manifest. The manifest contains the source bounds, solid collision-brush
+planes and translated spawn intent (`red` to Alpha, `blue` to Omega, generic
+starts to neutral). Polygon and mesh faces are exported, and quadratic patch
+faces are tessellated.
+
+```sh
+python3 scripts/csgopen/q3bsp.py /path/to/ut4_example.pk3 .csgopen/map-convert/example
+```
+
+The end-to-end wrapper creates a temporary staged content package, extracts
+directly referenced textures, and builds separate render and collision models.
+The collision model duplicates each compiled surface with both windings, so it
+does not depend on source brushes or on the source renderer's front-face
+convention. The converter ray-tests each spawn against walkable BSP surfaces,
+snaps it above the closest supporting floor with player clearance, records any
+unsupported starts in the manifest, creates native Alpha/Omega/neutral player
+starts, and uses the client editor to save an `.mpz`:
+
+```sh
+scripts/csgopen/convert-pk3.sh /path/to/ut4_example.pk3
+```
+
+The wrapper prints the package directory and an exact client command for
+playing the converted map. A second BSP-name argument selects a map when an
+archive name does not match its BSP name or the PK3 contains multiple maps.
+Derived files stay under `.csgopen/map-convert/` and are not added to the
+repository. This first backend keeps the map as a collidable model; conversion
+to editable Cube 2 octree geometry remains future work. Permission to make and
+distribute a converted map must still be checked per archive.
+
+### Source 1 BSP map converter
+
+`scripts/csgopen/sourcebsp.py` reads compiled Valve `VBSP` version 20/21 maps
+directly, without a decompiled VMF. It reconstructs model 0 faces and terrain
+displacements, translates Counter-Terrorist/Terrorist starts to Alpha/Omega,
+and reads VMT/VTF assets first from the BSP pakfile and then from an optional
+game VPK. DXT1, DXT3 and DXT5 textures are converted losslessly to DDS. Maps
+with a `sky_camera` use a generous start-based envelope to exclude the remote
+3D skybox model.
+
+The end-to-end wrapper locates `pak01_dir.vpk` next to a normal Steam game
+installation, generates a staged package, and uses the client editor to save a
+native MPZ:
+
+```sh
+scripts/csgopen/convert-source-bsp.sh /path/to/game/maps/de_example.bsp
+```
+
+An explicit VPK, model scale, displacement LOD, and static-prop triangle
+budget can be supplied as the second through fifth arguments. Defaults are
+scale `0.25`, LOD `2`, and 300,000 prop triangles:
+
+```sh
+scripts/csgopen/convert-source-bsp.sh /path/to/de_example.bsp /path/to/pak01_dir.vpk 0.25 2 300000
+```
+
+The default LOD reduces every displacement axis by four. Render geometry is
+kept below Eclipse Recoil's 65,535-index model limit; the converter stops with
+a clear error when non-displacement geometry still exceeds it. Collision is
+reconstructed from the BSP's authored solid and player-clip brushes, plus
+compiled displacement terrain. It is exported as double-sided OBJ carriers
+partitioned into 1,024-Source-unit XY tiles, so the engine indexes local BIH
+volumes for floors, stairs, walls and raised surfaces without altering the
+visible material meshes. Starts are
+placed above their closest compiled walkable surface with native player
+clearance, while Source yaw is preserved in Eclipse coordinates. Generated
+maps disable the default `newmap` lower-half floor and rely only on imported
+collision. Neutral collision backing is disabled by default: Source
+`playerclip` volumes can span facades and sky boundaries, so rendering them as
+gray geometry causes much more damage than the small holes it attempts to
+hide. The low-level converter retains `--neutral-backing` as an experimental
+diagnostic option, but reusable conversions should repair missing render
+panels at the prop/mesh level instead.
+
+Static props are decoded from the version-11 game lump and MDL/VVD/VTX assets
+with Blender plus the Plumber addon. Playable instances are merged into local
+tile models, reduced toward the requested global triangle budget, and textured
+from the BSP pakfile and game VPK. The reducer identifies solid and
+architectural props and reserves geometry for disconnected panels larger than
+16x32 Source units. This prevents a low global decimation ratio from deleting
+whole wall, door, arch, or window panels while still simplifying bolts, bars,
+foliage, and other small detail aggressively. Set `BLENDER_BIN` and
+`PLUMBER_DIR` when they are not installed at
+`/Applications/Blender.app/Contents/MacOS/Blender` and
+`.csgopen/tools/plumber111/plumber`; set `CSGOPEN_SOURCE_PROPS=0` only for a
+world-shell conversion. Because protected panels can raise the final count,
+the triangle budget is a target rather than a strict ceiling.
+
+This is still not a complete Source runtime. Dynamic props, lightmaps,
+cubemaps, Source shader effects, navigation data and non-spawn gameplay
+entities are not converted. Static-prop visuals currently rely on the BSP's
+brush/player-clip collision rather than importing every PHY hull. Consequently
+a map can retain its layout, props and base textures while still showing
+different lighting or allowing passage through an unclipped decorative prop.
+Generated assets remain under
+`.csgopen/map-convert/`. Valve assets are read from the user's local game and
+must not be committed or redistributed without the appropriate permission.
+
+### Valve VMF map converter
+
+`scripts/csgopen/vmf.py` reconstructs convex brush geometry from a decompiled
+Valve Map Format (`.vmf`) file. It includes world brushes and supported static
+brush entities, creates separate render and collision OBJ models, translates
+Counter-Terrorist/Terrorist starts to Alpha/Omega starts, and snaps every start
+above a supporting brush. OBJ meshes are divided into BIH-safe groups without
+single-triangle groups, which the current engine cannot index safely.
+
+The end-to-end wrapper builds an isolated native MPZ and prints the exact play
+command:
+
+```sh
+scripts/csgopen/convert-vmf.sh /path/to/de_example_d.vmf
+```
+
+This initial backend exports neutral geometry only. It does not recover Source
+materials, textures, props, displacements, lighting or gameplay entities that
+are absent from the VMF input. Generated packages remain under
+`.csgopen/map-convert/`; check the source map's redistribution terms before
+publishing a conversion.
+
 The TDM launcher loads `config/csgopen/branding.cfg` before creating the window.
 It uses `data/csgopen/branding/splash.png` (3344 × 1882) as the loading background
 and `data/csgopen/branding/icon.png` (1254 × 1254, RGBA) as the SDL application
