@@ -1227,3 +1227,56 @@ Executed on macOS arm64:
 
 A new Windows CI run is required to confirm native extraction and reach the
 client compiler. No remote workflow was triggered and no release was published.
+
+## Build 5 macOS startup crash investigation (2026-10-02)
+
+The downloaded arm64 build 5 (`4de9fb35`) was reported to crash after loading
+on every launch, without input. Its log ends while loading Echo. Repeated
+launches of the original package, including LaunchServices and isolated
+profiles, did not reproduce the user's failure on this machine. An
+AddressSanitizer build using the downloaded package's assets exposed two
+invalid memory accesses in the same startup path:
+
+- `getlocalparam` retained pointers to temporary shader parameter names such
+  as UI-generated `objcolor0`. ASan reported a stack-buffer-overflow in the
+  subsequent hash-table string comparison during the loading screen. The
+  registry now interns names through the existing persistent shader-name
+  pool. Log: `.csgopen/logs/startup-asan-before-fix.log`.
+- Model material commands registered `siif` despite accepting a string,
+  three integers and a float. After fixing the first fault, LLDB stopped
+  in OBJ `setmaterial` for Echo's `bark01` mesh with the final argument equal
+  to address `0x40`. The registration now uses `siiif`, matching the function
+  and allowing omitted arguments to receive the command interpreter's
+  defaults. Log: `.csgopen/logs/startup-asan-fixed-lldb.log`.
+
+Executed on macOS arm64:
+
+- Native client/server builds and the separate ASan client build passed.
+  Logs: `.csgopen/logs/startup-material-fix-build.log` and
+  `.csgopen/logs/startup-asan-material-fix-build.log`.
+- A fresh-profile ASan startup reached Echo and `ASAN_FIXED_READY`, then
+  exited cleanly without a sanitizer report or fatal signal. Logs:
+  `.csgopen/logs/startup-asan-both-fixes-{game,runtime}.log`.
+- The complete TDM smoke test with ASan passed **`SMOKE_DONE FAILURES 0`**,
+  including respawn and Echo-to-Dutility map loading. Logs:
+  `.csgopen/logs/startup-asan-smoke-tdm-{game,runtime}.log`. Preliminary
+  smoke runs lacked the launcher's client preferences or local TDM setup
+  and failed preset assertions; the final run includes both configuration
+  files and passes all assertions.
+- A local preview app uses the corrected native binary with build 5 assets
+  and runtime libraries, relocated library references and renewed ad-hoc
+  signatures. Signature verification passed. Three fresh-profile
+  LaunchServices starts reached `FIXED_APP_READY` and exited cleanly. Log:
+  `.csgopen/logs/startup-fixed-app-first-boot.log`.
+- The preview app's complete TDM smoke also passed
+  **`SMOKE_DONE FAILURES 0`** with the bundled runtime libraries. Logs:
+  `.csgopen/release-5-fixed/smoke-profile/game.log` and
+  `.csgopen/logs/startup-fixed-app-smoke-runtime.log`.
+- `git diff --check` passed. Test servers were loopback-only and stopped.
+
+The preview is `.csgopen/release-5-fixed/Eclipse Recoil.app` and identifies
+itself as a Development build. The downloaded app and the user's profile
+were not modified. These are confirmed startup memory defects; attributing
+the original release's specific crash to either one remains an inference
+until the user tests the corrected app. The release compiler and other
+platforms require CI verification. No commit, push or release was published.

@@ -471,7 +471,8 @@ void findfragdatalocs(Shader &s, char *psstr)
 
 int getlocalparam(const char *name)
 {
-    return localparams.access(name, int(localparams.numelems));
+    // Dynamic UI parameters can use stack buffers; the registry retains its keys.
+    return localparams.access(getshaderparamname(name), int(localparams.numelems));
 }
 
 static int addlocalparam(Shader &s, const char *name, int loc, int size, GLenum format)
